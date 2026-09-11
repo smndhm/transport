@@ -8,12 +8,12 @@ Petite app pour organiser les déplacements aux matchs : qui vient, qui conduit,
 
 - Deux usages : l'**organisateur** ouvre l'app avec `?admin` dans l'URL (création de match, import Kalisport, modification, suppression) et partage les liens ; les **parents** ouvrent le lien reçu, le match s'ajoute à leur liste et ils n'ont qu'à répondre. Ce n'est pas une sécurité, juste un paramètre non communiqué — le mode est mémorisé sur l'appareil, `?admin=0` le désactive
 - Hiérarchie : catégorie (U11, U13…) → matchs → point de rdv. La liste des matchs est regroupée par catégorie ; chaque match affiche son point de rendez-vous (lieu + heure) en tête et dans le message de partage
-- Créer un match à l'extérieur (catégorie, adversaire, date/heure, lieu, point de rdv) — l'app ne sert que pour les déplacements
+- Créer un match à l'extérieur (catégorie, adversaire, date/heure, lieu, point de rdv et nombre de joueurs à y prendre) — l'app ne sert que pour les déplacements
 - Importer les matchs depuis Kalisport : lien d'export du calendrier (webcal:// ou https://), fichier .ics ou copier-coller, avec détection des doublons au ré-import
 - Si le lien du calendrier est accepté par le serveur (CORS), il est mémorisé et un bouton « Actualiser » synchronise les matchs en un clic
-- Une réponse par accompagnateur, trois champs : nom, je conduis (oui/non), puis nombre de places (sans compter son enfant joueur) ou nombre de joueurs déposés au point de rendez-vous
+- Une réponse par accompagnateur, trois champs : nom, je conduis (oui/non), et si oui le nombre de places (sans compter son enfant joueur)
 - Les infos voiture sont mémorisées d'un match sur l'autre ; une fois répondu, le formulaire laisse place à un bouton « Modifier ma réponse », et chaque réponse de la liste s'édite d'un simple toucher
-- Récapitulatif : voitures, et places libres vs personnes à prendre au rendez-vous (joueurs déposés + accompagnateurs sans voiture) — vert dès que les joueurs sont couverts, avec une note si des accompagnateurs restent à caser
+- Récapitulatif : voitures, et places libres vs personnes à prendre au rendez-vous (les joueurs annoncés sur le match + les accompagnateurs sans voiture) — vert dès que les joueurs sont couverts, avec une note si des accompagnateurs restent à caser
 - Partage du sondage par lien (à coller dans WhatsApp) — pas de compte, pas de serveur
 
 ## Comment ça marche (mode POC)

@@ -196,6 +196,13 @@ function matchTitle(m) {
   return m.imported ? m.opponent : "vs " + m.opponent;
 }
 
+// Joueurs à prendre au point de rdv : déclaré par l'organisateur sur le
+// match. Les sondages d'avant cette version le déduisaient des réponses.
+function playersToTake(m) {
+  if (m.toTake != null && m.toTake !== "") return Number(m.toTake) || 0;
+  return m.players.reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
+}
+
 function isPast(match) {
   const d = new Date(match.date + "T" + (match.time || "23:59"));
   return d < new Date();
@@ -283,7 +290,7 @@ function matchCard(m, past = false) {
   const cars = accomp.filter((p) => carMode(p) !== "no");
   const walkers = accomp.filter((p) => carMode(p) === "no");
   const seats = cars.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
-  const riders = walkers.reduce((sum, p) => sum + (Number(p.riders) || 0), 0) + walkers.length;
+  const riders = playersToTake(m) + walkers.length;
   const badge = past ? `<span class="badge past">terminé</span>` : "";
   return `<div class="card clickable" data-match="${m.id}">
     <p class="match-title">${esc(matchTitle(m))} ${badge}</p>
@@ -293,7 +300,7 @@ function matchCard(m, past = false) {
 
 function renderForm(match) {
   if (!isAdmin) return renderList();
-  const m = match || { opponent: "", date: "", time: "", location: "", category: "", rdv: "", rdvTime: "", type: "away" };
+  const m = match || { opponent: "", date: "", time: "", location: "", category: "", rdv: "", rdvTime: "", toTake: "", type: "away" };
   const cats = [...new Set(state.matches.map((x) => x.category).filter(Boolean))];
   app.innerHTML = `
     <div class="card">
@@ -313,6 +320,9 @@ function renderForm(match) {
         <div><label>Point de rdv</label><input id="f-rdv" value="${esc(m.rdv || "")}" placeholder="Ex : parking du gymnase"></div>
         <div><label>Heure de rdv</label><input id="f-rdvtime" type="time" value="${esc(m.rdvTime || "")}"></div>
       </div>
+      <label>Joueurs à prendre au point de rdv</label>
+      <p class="match-meta" style="margin: 0 0 6px;">Combien de joueurs attendent une place.</p>
+      <input id="f-totake" type="number" min="0" max="30" value="${esc(m.toTake ?? "")}" placeholder="Ex : 10">
       <div class="section-actions">
         <button class="btn-secondary" id="f-cancel">Annuler</button>
         <button class="btn-primary" id="f-save">Enregistrer</button>
@@ -333,6 +343,7 @@ function renderForm(match) {
       category: document.getElementById("f-category").value.trim(),
       rdv: document.getElementById("f-rdv").value.trim(),
       rdvTime: document.getElementById("f-rdvtime").value,
+      toTake: document.getElementById("f-totake").value === "" ? "" : Math.max(0, Number(document.getElementById("f-totake").value) || 0),
       updatedAt: Date.now(),
     };
     if (match) {
@@ -526,7 +537,7 @@ function carMode(p) {
 
 // État transitoire du formulaire de réponse.
 // Une réponse par accompagnateur : nom, je conduis, places ou joueurs au rdv.
-let myResponse = { car: null, seats: 3, riders: 1 };
+let myResponse = { car: null, seats: 3 };
 
 // Les infos voiture sont mémorisées d'une réponse sur l'autre.
 function loadCarPref() {
@@ -550,18 +561,18 @@ function renderDetail(matchId, editIndex) {
   const editingOther = editIndex != null && editIndex !== mineIdx;
 
   if (editing) {
-    myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3, riders: editing.riders ?? 1 };
+    myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3 };
   } else {
     const pref = loadCarPref();
-    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3, riders: pref.riders ?? 1 };
+    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3 };
   }
   const formName = editingOther ? editing.name : myName;
 
   const drivers = accomp.filter((p) => carMode(p) !== "no");
   const walkers = accomp.filter((p) => carMode(p) === "no");
   const seats = drivers.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
-  // Joueurs déposés au point de rdv : c'est eux qui décident du feu vert.
-  const riders = walkers.reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
+  // Joueurs annoncés par l'organisateur : c'est eux qui décident du feu vert.
+  const riders = playersToTake(m);
   // Un accompagnateur sans voiture est lui aussi à prendre.
   const toTake = riders + walkers.length;
   const playersOk = seats >= riders;
@@ -571,8 +582,8 @@ function renderDetail(matchId, editIndex) {
     <div class="card">
       <p class="match-title">${esc(matchTitle(m))}${m.category ? ` <span class="badge home">${esc(m.category)}</span>` : ""}</p>
       <p class="match-meta">${esc(formatDate(m.date, m.time))}${m.location ? " · " + esc(m.location) : ""}</p>
-      ${m.rdv || m.rdvTime
-        ? `<p class="match-meta rdv">🅿️ Rdv${m.rdvTime ? " à " + esc(m.rdvTime.replace(":", "h")) : ""}${m.rdv ? " — " + esc(m.rdv) : ""}</p>`
+      ${m.rdv || m.rdvTime || riders
+        ? `<p class="match-meta rdv">🅿️ Rdv${m.rdvTime ? " à " + esc(m.rdvTime.replace(":", "h")) : ""}${m.rdv ? " — " + esc(m.rdv) : ""}${riders ? ` · ${riders} joueur${riders > 1 ? "s" : ""} à prendre` : ""}</p>`
         : `<p class="match-meta">🅿️ Point de rdv à définir (« Modifier le match »)</p>`}
     </div>
 
@@ -599,12 +610,6 @@ function renderDetail(matchId, editIndex) {
         <p class="match-meta" style="margin: 0 0 6px;">Sans compter votre enfant joueur.</p>
         <input id="r-seats" type="number" min="0" max="8" value="${myResponse.seats}">
       </div>
-      <div id="riders-block" ${myResponse.car === "no" ? "" : "hidden"}>
-        <label>Joueurs à prendre au point de rdv</label>
-        <p class="match-meta" style="margin: 0 0 6px;">Combien de joueurs déposez-vous au point
-        de rendez-vous ? Vous-même serez aussi compté parmi les personnes à prendre.</p>
-        <input id="r-riders" type="number" min="0" max="6" value="${myResponse.riders}">
-      </div>
       <div class="section-actions">
         ${mineIdx >= 0 ? `<button class="btn-secondary" id="r-cancel">Annuler</button>` : ""}
         <button class="btn-primary" id="r-save">Enregistrer</button>
@@ -618,10 +623,9 @@ function renderDetail(matchId, editIndex) {
     ${accomp.length
       ? `<div class="card"><ul class="player-list">${accomp
           .map((p, i) => {
-            const nb = Number(p.riders) || 0;
             const detail = carMode(p) !== "no"
               ? `🚗 ${Number(p.seats) || 0} place${(Number(p.seats) || 0) > 1 ? "s" : ""}`
-              : `🙋 ${nb + 1} à prendre${nb ? ` (${nb} joueur${nb > 1 ? "s" : ""} + soi)` : ""}`;
+              : "🙋 sans voiture";
             return `<li data-edit="${i}" style="cursor:pointer"><span>${esc(p.name)}</span><span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
           })
           .join("")}</ul></div>
@@ -663,8 +667,6 @@ function renderDetail(matchId, editIndex) {
     if (!editingOther) myName = document.getElementById("r-name").value;
     const seatsInput = document.getElementById("r-seats");
     if (seatsInput) myResponse.seats = Number(seatsInput.value) || 0;
-    const ridersInput = document.getElementById("r-riders");
-    if (ridersInput) myResponse.riders = Math.max(0, Number(ridersInput.value) || 0);
   }
 
   if (showForm) {
@@ -676,7 +678,6 @@ function renderDetail(matchId, editIndex) {
       document.getElementById("c-yes").className = myResponse.car === "yes" ? "selected-yes" : "";
       document.getElementById("c-no").className = myResponse.car === "no" ? "selected-no" : "";
       document.getElementById("seats-block").hidden = myResponse.car !== "yes";
-      document.getElementById("riders-block").hidden = myResponse.car !== "no";
     }
 
     document.getElementById("r-save").onclick = () => {
@@ -688,7 +689,6 @@ function renderDetail(matchId, editIndex) {
         name,
         car: myResponse.car,
         seats: myResponse.car === "yes" ? Number(myResponse.seats) || 0 : 0,
-        riders: myResponse.car === "no" ? Math.max(0, Number(myResponse.riders) || 0) : 0,
         updatedAt: Date.now(),
       };
       if (editingOther) {
@@ -698,7 +698,7 @@ function renderDetail(matchId, editIndex) {
       } else {
         myName = name;
         try { localStorage.setItem(STORAGE_KEY + ":name", name); } catch (e) {}
-        saveCarPref({ car: entry.car, seats: myResponse.seats, riders: myResponse.riders });
+        saveCarPref({ car: entry.car, seats: myResponse.seats });
         const idx = m.players.findIndex((p) => p.name.trim().toLowerCase() === name.toLowerCase());
         if (idx >= 0) m.players[idx] = entry;
         else m.players.push(entry);
@@ -711,8 +711,8 @@ function renderDetail(matchId, editIndex) {
 
   document.getElementById("share").onclick = async () => {
     const url = shareUrl(m);
-    const rdvLine = m.rdv || m.rdvTime
-      ? `\n🅿️ Rdv${m.rdvTime ? " à " + m.rdvTime.replace(":", "h") : ""}${m.rdv ? " — " + m.rdv : ""}`
+    const rdvLine = m.rdv || m.rdvTime || riders
+      ? `\n🅿️ Rdv${m.rdvTime ? " à " + m.rdvTime.replace(":", "h") : ""}${m.rdv ? " — " + m.rdv : ""}${riders ? ` · ${riders} joueur${riders > 1 ? "s" : ""} à prendre` : ""}`
       : "";
     const text = `🚌 Sondage transport${m.category ? " " + m.category : ""} — ${matchTitle(m)} (${formatDate(m.date, m.time)})${rdvLine}\nRéponds ici : ${url}`;
     if (navigator.share) {
