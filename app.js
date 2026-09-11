@@ -240,8 +240,10 @@ function renderList() {
 }
 
 function matchCard(m, past = false) {
-  const cars = m.players.filter((p) => p.status !== "absent" && carMode(p) !== "no");
+  const accomp = m.players.filter((p) => p.status !== "absent");
+  const cars = accomp.filter((p) => carMode(p) !== "no");
   const seats = cars.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
+  const riders = accomp.filter((p) => carMode(p) === "no").reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
   const badge = past
     ? `<span class="badge past">terminé</span>`
     : m.type === "home"
@@ -249,7 +251,7 @@ function matchCard(m, past = false) {
       : `<span class="badge away">extérieur</span>`;
   return `<div class="card clickable" data-match="${m.id}">
     <p class="match-title">${esc(matchTitle(m))} ${badge}</p>
-    <p class="match-meta">${esc(formatDate(m.date, m.time))} · ${cars.length} voiture${cars.length > 1 ? "s" : ""} · ${seats} pl.</p>
+    <p class="match-meta">${esc(formatDate(m.date, m.time))} · ${cars.length} voiture${cars.length > 1 ? "s" : ""} · ${seats}/${riders} pl.</p>
   </div>`;
 }
 
@@ -479,21 +481,43 @@ function carMode(p) {
 }
 
 // État transitoire du formulaire de réponse.
-// Une réponse par accompagnateur : nom, je conduis, places.
-let myResponse = { car: null, seats: 3 };
+// Une réponse par accompagnateur : nom, je conduis, places ou joueurs au rdv.
+let myResponse = { car: null, seats: 3, riders: 1 };
 
-function renderDetail(matchId) {
+// Les infos voiture sont mémorisées d'une réponse sur l'autre.
+function loadCarPref() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY + ":car")) || null; } catch (e) { return null; }
+}
+function saveCarPref(pref) {
+  try { localStorage.setItem(STORAGE_KEY + ":car", JSON.stringify(pref)); } catch (e) {}
+}
+
+function renderDetail(matchId, editIndex) {
   const m = state.matches.find((x) => x.id === matchId);
   if (!m) return renderList();
 
   // Les réponses des anciens formats restent lisibles : conduire était un
   // booléen ou « si besoin », et « ne vient pas » n'existe plus.
   const accomp = m.players.filter((p) => p.status !== "absent");
-  const mine = accomp.find((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
-  if (mine) myResponse = { car: carMode(mine) === "no" ? "no" : "yes", seats: mine.seats ?? 3 };
+  const mineIdx = accomp.findIndex((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
+  const editing = editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
+  // Le formulaire ne s'affiche que tant qu'on n'a pas répondu, ou pour éditer.
+  const showForm = editIndex != null || mineIdx < 0;
+  const editingOther = editIndex != null && editIndex !== mineIdx;
+
+  if (editing) {
+    myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3, riders: editing.riders ?? 1 };
+  } else {
+    const pref = loadCarPref();
+    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3, riders: pref.riders ?? 1 };
+  }
+  const formName = editingOther ? editing.name : myName;
 
   const drivers = accomp.filter((p) => carMode(p) !== "no");
   const seats = drivers.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
+  const riders = accomp
+    .filter((p) => carMode(p) === "no")
+    .reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
 
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
@@ -505,15 +529,15 @@ function renderDetail(matchId) {
     </div>
 
     <div class="summary">
-      <div class="stat"><div class="num">${accomp.length}</div><div class="lbl">accompagnateurs</div></div>
       <div class="stat"><div class="num">${drivers.length}</div><div class="lbl">voitures</div></div>
-      <div class="stat ok"><div class="num">${seats}</div><div class="lbl">places libres</div></div>
+      <div class="stat ${seats >= riders ? "ok" : "ko"}"><div class="num">${seats}/${riders}</div><div class="lbl">places / joueurs au rdv</div></div>
     </div>
 
+    ${showForm ? `
     <div class="card">
-      <h2 style="margin-top:0">Ma réponse</h2>
+      <h2 style="margin-top:0">${editingOther ? "Modifier la réponse" : "Ma réponse"}</h2>
       <label>Nom de l'accompagnateur</label>
-      <input id="r-name" value="${esc(myName)}" placeholder="Prénom ou nom de famille">
+      <input id="r-name" value="${esc(formName)}" placeholder="Prénom ou nom de famille">
       <label>Je conduis ?</label>
       <div class="choice-group">
         <button id="c-yes" class="${myResponse.car === "yes" ? "selected-yes" : ""}">🚗 Oui</button>
@@ -524,21 +548,32 @@ function renderDetail(matchId) {
         <p class="match-meta" style="margin: 0 0 6px;">Sans compter votre enfant joueur.</p>
         <input id="r-seats" type="number" min="0" max="8" value="${myResponse.seats}">
       </div>
-      <div class="section-actions">
-        <button class="btn-primary" id="r-save">Envoyer ma réponse</button>
+      <div id="riders-block" ${myResponse.car === "no" ? "" : "hidden"}>
+        <label>Joueurs à prendre au point de rdv</label>
+        <p class="match-meta" style="margin: 0 0 6px;">Combien de joueurs déposez-vous au point de rendez-vous ?</p>
+        <input id="r-riders" type="number" min="0" max="6" value="${myResponse.riders}">
       </div>
-    </div>
+      <div class="section-actions">
+        ${mineIdx >= 0 ? `<button class="btn-secondary" id="r-cancel">Annuler</button>` : ""}
+        <button class="btn-primary" id="r-save">Enregistrer</button>
+      </div>
+    </div>` : `
+    <div class="section-actions">
+      <button class="btn-secondary" id="r-edit">✏️ Modifier ma réponse</button>
+    </div>`}
 
     <h2>Réponses (${accomp.length})</h2>
     ${accomp.length
       ? `<div class="card"><ul class="player-list">${accomp
-          .map((p) => {
+          .map((p, i) => {
+            const nb = Number(p.riders) || 0;
             const detail = carMode(p) !== "no"
               ? `🚗 ${Number(p.seats) || 0} place${(Number(p.seats) || 0) > 1 ? "s" : ""}`
-              : "🙋 sans voiture";
-            return `<li><span>${esc(p.name)}</span><span class="player-status present">${detail}</span></li>`;
+              : nb ? `🙋 ${nb} joueur${nb > 1 ? "s" : ""} au rdv` : "🙋 sans voiture";
+            return `<li data-edit="${i}" style="cursor:pointer"><span>${esc(p.name)}</span><span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
           })
-          .join("")}</ul></div>`
+          .join("")}</ul></div>
+        <p class="match-meta" style="margin: 4px 0 0;">Touchez une réponse pour la corriger.</p>`
       : `<p class="empty">Personne n'a encore répondu.</p>`}
 
     <div class="section-actions">
@@ -560,34 +595,64 @@ function renderDetail(matchId) {
   };
 
   const rerender = () => renderDetail(matchId);
-  document.getElementById("c-yes").onclick = () => { myResponse.car = "yes"; keepName(); rerender(); };
-  document.getElementById("c-no").onclick = () => { myResponse.car = "no"; keepName(); rerender(); };
 
-  function keepName() {
-    myName = document.getElementById("r-name").value;
+  app.querySelectorAll("[data-edit]").forEach((el) => {
+    el.onclick = () => renderDetail(matchId, Number(el.dataset.edit));
+  });
+  const editBtn = document.getElementById("r-edit");
+  if (editBtn) editBtn.onclick = () => renderDetail(matchId, mineIdx);
+  const cancelBtn = document.getElementById("r-cancel");
+  if (cancelBtn) cancelBtn.onclick = () => rerender();
+
+  function keepForm() {
+    if (!editingOther) myName = document.getElementById("r-name").value;
     const seatsInput = document.getElementById("r-seats");
     if (seatsInput) myResponse.seats = Number(seatsInput.value) || 0;
+    const ridersInput = document.getElementById("r-riders");
+    if (ridersInput) myResponse.riders = Math.max(0, Number(ridersInput.value) || 0);
   }
 
-  document.getElementById("r-save").onclick = () => {
-    keepName();
-    const name = myName.trim();
-    if (!name) return toast("Indiquez votre nom");
-    if (!myResponse.car) return toast("Je conduis : oui ou non ?");
-    try { localStorage.setItem(STORAGE_KEY + ":name", name); } catch (e) {}
-    const entry = {
-      name,
-      car: myResponse.car,
-      seats: myResponse.car === "yes" ? Number(myResponse.seats) || 0 : 0,
-      updatedAt: Date.now(),
+  if (showForm) {
+    document.getElementById("c-yes").onclick = () => { myResponse.car = "yes"; keepForm(); redrawForm(); };
+    document.getElementById("c-no").onclick = () => { myResponse.car = "no"; keepForm(); redrawForm(); };
+
+    // Bascule oui/non sans re-rendre toute la page (le nom saisi est conservé).
+    function redrawForm() {
+      document.getElementById("c-yes").className = myResponse.car === "yes" ? "selected-yes" : "";
+      document.getElementById("c-no").className = myResponse.car === "no" ? "selected-no" : "";
+      document.getElementById("seats-block").hidden = myResponse.car !== "yes";
+      document.getElementById("riders-block").hidden = myResponse.car !== "no";
+    }
+
+    document.getElementById("r-save").onclick = () => {
+      keepForm();
+      const name = document.getElementById("r-name").value.trim();
+      if (!name) return toast("Indiquez votre nom");
+      if (!myResponse.car) return toast("Je conduis : oui ou non ?");
+      const entry = {
+        name,
+        car: myResponse.car,
+        seats: myResponse.car === "yes" ? Number(myResponse.seats) || 0 : 0,
+        riders: myResponse.car === "no" ? Math.max(0, Number(myResponse.riders) || 0) : 0,
+        updatedAt: Date.now(),
+      };
+      if (editingOther) {
+        // Correction d'une autre réponse : on remplace l'entrée éditée.
+        const target = m.players.indexOf(editing);
+        if (target >= 0) m.players[target] = entry;
+      } else {
+        myName = name;
+        try { localStorage.setItem(STORAGE_KEY + ":name", name); } catch (e) {}
+        saveCarPref({ car: entry.car, seats: myResponse.seats, riders: myResponse.riders });
+        const idx = m.players.findIndex((p) => p.name.trim().toLowerCase() === name.toLowerCase());
+        if (idx >= 0) m.players[idx] = entry;
+        else m.players.push(entry);
+      }
+      saveState();
+      toast("Réponse enregistrée ✔");
+      rerender();
     };
-    const idx = m.players.findIndex((p) => p.name.trim().toLowerCase() === name.toLowerCase());
-    if (idx >= 0) m.players[idx] = entry;
-    else m.players.push(entry);
-    saveState();
-    toast("Réponse enregistrée ✔");
-    rerender();
-  };
+  }
 
   document.getElementById("share").onclick = async () => {
     const url = shareUrl(m);
