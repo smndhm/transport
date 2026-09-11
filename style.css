@@ -127,6 +127,7 @@ input, select {
 .choice-group button.selected-yes { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
 .choice-group button.selected-no { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
 .choice-group button.selected-flex { background: var(--orange); border-color: var(--orange); color: #fff; font-weight: 600; }
+.choice-group button.selected-neutral { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 
 .summary {
   display: flex;

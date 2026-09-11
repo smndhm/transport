@@ -240,7 +240,7 @@ function renderList() {
 }
 
 function matchCard(m, past = false) {
-  const present = m.players.filter((p) => p.status === "present").length;
+  const present = m.players.filter((p) => p.status === "present" && (p.role || "player") === "player").length;
   const badge = past
     ? `<span class="badge past">terminé</span>`
     : m.type === "home"
@@ -477,23 +477,26 @@ function carMode(p) {
   return "no";
 }
 
-// État transitoire du formulaire de réponse
-let myResponse = { status: null, car: "no", seats: 3, need: 1 };
+// État transitoire du formulaire de réponse.
+// Chaque réponse est une personne (joueur ou accompagnateur) = une place.
+let myResponse = { role: "player", status: null, car: "no", seats: 3 };
 
 function renderDetail(matchId) {
   const m = state.matches.find((x) => x.id === matchId);
   if (!m) return renderList();
 
   const mine = m.players.find((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
-  if (mine) myResponse = { status: mine.status, car: carMode(mine), seats: mine.seats ?? 3, need: mine.need ?? 1 };
+  if (mine) myResponse = { role: mine.role || "player", status: mine.status, car: carMode(mine), seats: mine.seats ?? 3 };
 
   const present = m.players.filter((p) => p.status === "present");
+  const presentPlayers = present.filter((p) => (p.role || "player") === "player");
+  const companions = present.length - presentPlayers.length;
   const drivers = present.filter((p) => carMode(p) === "yes");
   const flex = present.filter((p) => carMode(p) === "ifneeded");
   const seats = drivers.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
   const flexSeats = flex.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
-  // Chaque conducteur (même « si besoin ») couvre sa propre famille ;
-  // les autres indiquent combien de places il leur faut.
+  // Chaque personne sans voiture occupe une place (les anciennes réponses
+  // « famille » avec un champ need en occupaient plusieurs).
   const passengers = present
     .filter((p) => carMode(p) === "no")
     .reduce((sum, p) => sum + Math.max(1, Number(p.need) || 1), 0);
@@ -510,7 +513,7 @@ function renderDetail(matchId) {
     </div>
 
     <div class="summary">
-      <div class="stat"><div class="num">${present.length}</div><div class="lbl">présents</div></div>
+      <div class="stat"><div class="num">${presentPlayers.length}${companions ? `+${companions}` : ""}</div><div class="lbl">${companions ? "joueurs + accomp." : "présents"}</div></div>
       <div class="stat"><div class="num">${drivers.length}${flex.length ? `+${flex.length}` : ""}</div><div class="lbl">voitures${flex.length ? " (+si besoin)" : ""}</div></div>
       ${m.type === "away"
         ? `<div class="stat ${seatsOk ? "ok" : flexOk ? "warn" : "ko"}"><div class="num">${seats}/${passengers}</div><div class="lbl">places libres / à transporter</div></div>`
@@ -522,15 +525,22 @@ function renderDetail(matchId) {
 
     <div class="card">
       <h2 style="margin-top:0">Ma réponse</h2>
-      <label>Mon nom</label>
+      <p class="match-meta" style="margin: 0 0 4px;">Une réponse par personne — le joueur
+      et chaque accompagnateur comptent chacun pour une place.</p>
+      <label>Prénom</label>
       <input id="r-name" value="${esc(myName)}" placeholder="Prénom">
+      <label>Je suis</label>
+      <div class="choice-group">
+        <button id="ro-player" class="${myResponse.role === "player" ? "selected-neutral" : ""}">Joueur</button>
+        <button id="ro-comp" class="${myResponse.role === "companion" ? "selected-neutral" : ""}">Accompagnateur</button>
+      </div>
       <label>Je viens ?</label>
       <div class="choice-group">
         <button id="r-yes" class="${myResponse.status === "present" ? "selected-yes" : ""}">✔ Présent</button>
         <button id="r-no" class="${myResponse.status === "absent" ? "selected-no" : ""}">✘ Absent</button>
       </div>
       <div id="car-block" ${myResponse.status === "present" && m.type === "away" ? "" : "hidden"}>
-        <label>Je peux conduire ?</label>
+        <label>J'ai une voiture ?</label>
         <div class="choice-group">
           <button id="c-yes" class="${myResponse.car === "yes" ? "selected-yes" : ""}">🚗 Oui</button>
           <button id="c-flex" class="${myResponse.car === "ifneeded" ? "selected-flex" : ""}">Si besoin</button>
@@ -538,13 +548,8 @@ function renderDetail(matchId) {
         </div>
         <div id="seats-block" ${myResponse.car !== "no" ? "" : "hidden"}>
           <label>Places libres</label>
-          <p class="match-meta" style="margin: 0 0 6px;">Nombre de places, sans compter votre enfant.</p>
+          <p class="match-meta" style="margin: 0 0 6px;">Nombre de places en plus de vous.</p>
           <input id="r-seats" type="number" min="0" max="8" value="${myResponse.seats}">
-        </div>
-        <div id="need-block" ${myResponse.car === "no" ? "" : "hidden"}>
-          <label>Places nécessaires</label>
-          <p class="match-meta" style="margin: 0 0 6px;">Votre enfant + les accompagnants sans voiture.</p>
-          <input id="r-need" type="number" min="1" max="6" value="${myResponse.need}">
         </div>
       </div>
       <div class="section-actions">
@@ -563,7 +568,8 @@ function renderDetail(matchId) {
               : mode === "ifneeded" ? `✔ présent · 🚗 si besoin (${Number(p.seats) || 0} pl.)`
               : (Number(p.need) || 1) > 1 ? `✔ présent · 🙋 ${p.need} places`
               : "✔ présent";
-            return `<li><span>${esc(p.name)}</span><span class="player-status ${p.status}">${detail}</span></li>`;
+            const tag = (p.role || "player") === "companion" ? ' <span class="match-meta">(accomp.)</span>' : "";
+            return `<li><span>${esc(p.name)}${tag}</span><span class="player-status ${p.status}">${detail}</span></li>`;
           })
           .join("")}</ul></div>`
       : `<p class="empty">Personne n'a encore répondu.</p>`}
@@ -593,13 +599,13 @@ function renderDetail(matchId) {
     const btn = document.getElementById(id);
     if (btn) btn.onclick = () => { myResponse.car = mode; keepName(); rerender(); };
   }
+  document.getElementById("ro-player").onclick = () => { myResponse.role = "player"; keepName(); rerender(); };
+  document.getElementById("ro-comp").onclick = () => { myResponse.role = "companion"; keepName(); rerender(); };
 
   function keepName() {
     myName = document.getElementById("r-name").value;
     const seatsInput = document.getElementById("r-seats");
     if (seatsInput) myResponse.seats = Number(seatsInput.value) || 0;
-    const needInput = document.getElementById("r-need");
-    if (needInput) myResponse.need = Math.max(1, Number(needInput.value) || 1);
   }
 
   document.getElementById("r-save").onclick = () => {
@@ -611,10 +617,10 @@ function renderDetail(matchId) {
     const driving = myResponse.status === "present" && m.type === "away" ? myResponse.car : "no";
     const entry = {
       name,
+      role: myResponse.role,
       status: myResponse.status,
       car: driving,
       seats: driving !== "no" ? Number(myResponse.seats) || 0 : 0,
-      need: driving === "no" ? Math.max(1, Number(myResponse.need) || 1) : 0,
       updatedAt: Date.now(),
     };
     const idx = m.players.findIndex((p) => p.name.trim().toLowerCase() === name.toLowerCase());
