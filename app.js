@@ -196,11 +196,32 @@ function matchTitle(m) {
   return m.imported ? m.opponent : "vs " + m.opponent;
 }
 
-// Joueurs à prendre au point de rdv : déclaré par l'organisateur sur le
-// match. Les sondages d'avant cette version le déduisaient des réponses.
+// Un match peut avoir plusieurs points de rdv (cas d'une entente).
+// Les sondages d'avant cette version n'en portaient qu'un, à plat.
+function matchRdvs(m) {
+  if (Array.isArray(m.rdvs) && m.rdvs.length) return m.rdvs;
+  const legacyToTake = m.toTake != null && m.toTake !== ""
+    ? Number(m.toTake) || 0
+    : (m.players || []).reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
+  if (m.rdv || m.rdvTime || legacyToTake) {
+    return [{ place: m.rdv || "", time: m.rdvTime || "", toTake: legacyToTake }];
+  }
+  return [];
+}
+
+// Point de départ d'une réponse, ramené aux points existants.
+function rdvIndexOf(p, count) {
+  const i = Number(p.rdv) || 0;
+  return i >= 0 && i < count ? i : 0;
+}
+
 function playersToTake(m) {
-  if (m.toTake != null && m.toTake !== "") return Number(m.toTake) || 0;
-  return m.players.reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
+  return matchRdvs(m).reduce((sum, r) => sum + (Number(r.toTake) || 0), 0);
+}
+
+function rdvLabel(r) {
+  const time = r.time ? "départ " + r.time.replace(":", "h") : "";
+  return [r.place, time].filter(Boolean).join(" — ") || "Point de rdv";
 }
 
 function isPast(match) {
@@ -300,8 +321,11 @@ function matchCard(m, past = false) {
 
 function renderForm(match) {
   if (!isAdmin) return renderList();
-  const m = match || { opponent: "", date: "", time: "", location: "", category: "", rdv: "", rdvTime: "", toTake: "", type: "away" };
+  const m = match || { opponent: "", date: "", time: "", location: "", category: "", arrivalTime: "", rdvs: [], type: "away" };
   const cats = [...new Set(state.matches.map((x) => x.category).filter(Boolean))];
+  // Points de rdv édités dans le formulaire (au moins une ligne vide).
+  let rdvs = matchRdvs(m).map((r) => ({ ...r }));
+  if (!rdvs.length) rdvs = [{ place: "", time: "", toTake: "" }];
   app.innerHTML = `
     <div class="card">
       <h2 style="margin-top:0">${match ? "Modifier le match" : "Nouveau match"}</h2>
@@ -316,18 +340,41 @@ function renderForm(match) {
       </div>
       <label>Lieu (optionnel)</label>
       <input id="f-location" value="${esc(m.location)}" placeholder="Ex : Gymnase Jean Moulin">
-      <div class="row">
-        <div><label>Point de rdv</label><input id="f-rdv" value="${esc(m.rdv || "")}" placeholder="Ex : parking du gymnase"></div>
-        <div><label>Heure de rdv</label><input id="f-rdvtime" type="time" value="${esc(m.rdvTime || "")}"></div>
-      </div>
-      <label>Joueurs à prendre au point de rdv</label>
-      <p class="match-meta" style="margin: 0 0 6px;">Combien de joueurs attendent une place.</p>
-      <input id="f-totake" type="number" min="0" max="30" value="${esc(m.toTake ?? "")}" placeholder="Ex : 10">
+      <label>Heure sur place</label>
+      <p class="match-meta" style="margin: 0 0 6px;">Pour ceux qui s'y rendent par leurs propres moyens.</p>
+      <input id="f-arrival" type="time" value="${esc(m.arrivalTime || "")}">
+      <h2 style="font-size: 1rem;">Points de rdv</h2>
+      <div id="f-rdvs"></div>
+      <button class="btn-link" id="f-addrdv">+ Ajouter un point de rdv</button>
       <div class="section-actions">
         <button class="btn-secondary" id="f-cancel">Annuler</button>
         <button class="btn-primary" id="f-save">Enregistrer</button>
       </div>
     </div>`;
+
+  // Les lignes de rdv sont redessinées à chaque ajout/suppression.
+  function drawRdvs() {
+    document.getElementById("f-rdvs").innerHTML = rdvs
+      .map((r, i) => `<div class="rdv-row">
+        <div class="row">
+          <div style="flex:2"><label>Lieu</label><input data-rdv="${i}" data-f="place" value="${esc(r.place || "")}" placeholder="Ex : parking du gymnase"></div>
+          <div><label>Départ</label><input data-rdv="${i}" data-f="time" type="time" value="${esc(r.time || "")}"></div>
+        </div>
+        <div class="row">
+          <div><label>Joueurs à prendre</label><input data-rdv="${i}" data-f="toTake" type="number" min="0" max="30" value="${esc(r.toTake ?? "")}" placeholder="Ex : 8"></div>
+          ${rdvs.length > 1 ? `<div style="flex:0 0 auto; display:flex; align-items:flex-end"><button class="btn-danger" data-delrdv="${i}">Retirer</button></div>` : ""}
+        </div>
+      </div>`)
+      .join("");
+    document.querySelectorAll("[data-rdv]").forEach((el) => {
+      el.oninput = () => { rdvs[Number(el.dataset.rdv)][el.dataset.f] = el.value; };
+    });
+    document.querySelectorAll("[data-delrdv]").forEach((el) => {
+      el.onclick = () => { rdvs.splice(Number(el.dataset.delrdv), 1); drawRdvs(); };
+    });
+  }
+  drawRdvs();
+  document.getElementById("f-addrdv").onclick = () => { rdvs.push({ place: "", time: "", toTake: "" }); drawRdvs(); };
 
   document.getElementById("f-cancel").onclick = () => (match ? renderDetail(match.id) : renderList());
   document.getElementById("f-save").onclick = () => {
@@ -341,9 +388,10 @@ function renderForm(match) {
       type: "away",
       location: document.getElementById("f-location").value.trim(),
       category: document.getElementById("f-category").value.trim(),
-      rdv: document.getElementById("f-rdv").value.trim(),
-      rdvTime: document.getElementById("f-rdvtime").value,
-      toTake: document.getElementById("f-totake").value === "" ? "" : Math.max(0, Number(document.getElementById("f-totake").value) || 0),
+      arrivalTime: document.getElementById("f-arrival").value,
+      rdvs: rdvs
+        .map((r) => ({ place: (r.place || "").trim(), time: r.time || "", toTake: Math.max(0, Number(r.toTake) || 0) }))
+        .filter((r) => r.place || r.time || r.toTake),
       updatedAt: Date.now(),
     };
     if (match) {
@@ -537,7 +585,7 @@ function carMode(p) {
 
 // État transitoire du formulaire de réponse.
 // Une réponse par accompagnateur : nom, je conduis, places ou joueurs au rdv.
-let myResponse = { car: null, seats: 3 };
+let myResponse = { car: null, seats: 3, rdv: 0 };
 
 // Les infos voiture sont mémorisées d'une réponse sur l'autre.
 function loadCarPref() {
@@ -561,10 +609,10 @@ function renderDetail(matchId, editIndex) {
   const editingOther = editIndex != null && editIndex !== mineIdx;
 
   if (editing) {
-    myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3 };
+    myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3, rdv: Number(editing.rdv) || 0 };
   } else {
     const pref = loadCarPref();
-    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3 };
+    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3, rdv: 0 };
   }
   const formName = editingOther ? editing.name : myName;
 
@@ -577,14 +625,24 @@ function renderDetail(matchId, editIndex) {
   const toTake = riders + walkers.length;
   const playersOk = seats >= riders;
 
+  // Chaque réponse est rattachée à un point de rdv : le bilan se fait
+  // aussi point par point, sinon des places d'un point compenseraient
+  // à tort un manque dans l'autre.
+  const rdvs = matchRdvs(m);
+  const perRdv = rdvs.map((r, i) => {
+    const at = accomp.filter((p) => rdvIndexOf(p, rdvs.length) === i);
+    const atSeats = at.filter((p) => carMode(p) !== "no").reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
+    const atWalkers = at.filter((p) => carMode(p) === "no").length;
+    const atRiders = Number(r.toTake) || 0;
+    return { r, i, cars: at.length - atWalkers, seats: atSeats, riders: atRiders, toTake: atRiders + atWalkers, ok: atSeats >= atRiders };
+  });
+
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
     <div class="card">
       <p class="match-title">${esc(matchTitle(m))}${m.category ? ` <span class="badge home">${esc(m.category)}</span>` : ""}</p>
       <p class="match-meta">${esc(formatDate(m.date, m.time))}${m.location ? " · " + esc(m.location) : ""}</p>
-      ${m.rdv || m.rdvTime || riders
-        ? `<p class="match-meta rdv">🅿️ Rdv${m.rdvTime ? " à " + esc(m.rdvTime.replace(":", "h")) : ""}${m.rdv ? " — " + esc(m.rdv) : ""}${riders ? ` · ${riders} joueur${riders > 1 ? "s" : ""} à prendre` : ""}</p>`
-        : `<p class="match-meta">🅿️ Point de rdv à définir (« Modifier le match »)</p>`}
+      ${m.arrivalTime ? `<p class="match-meta rdv">🏟️ Sur place à ${esc(m.arrivalTime.replace(":", "h"))}</p>` : ""}
     </div>
 
     <div class="summary">
@@ -594,6 +652,16 @@ function renderDetail(matchId, editIndex) {
     ${playersOk && seats < toTake
       ? `<p class="match-meta" style="text-align:center; margin: -6px 0 12px;">Assez de places pour les joueurs ✔ — ${toTake - seats} accompagnateur${toTake - seats > 1 ? "s" : ""} sans voiture pas encore casé${toTake - seats > 1 ? "s" : ""}</p>`
       : ""}
+
+    ${rdvs.length
+      ? perRdv.map((g) => `<div class="card rdv-card">
+          <p class="match-title" style="font-size:0.98rem">🅿️ ${esc(rdvLabel(g.r))}</p>
+          <p class="match-meta">${g.riders} joueur${g.riders > 1 ? "s" : ""} à prendre · ${g.cars} voiture${g.cars > 1 ? "s" : ""}
+            · <span class="${g.ok ? "seats-ok" : "seats-ko"}">${g.seats}/${g.toTake} place${g.toTake > 1 ? "s" : ""}</span></p>
+        </div>`).join("")
+      : isAdmin
+        ? `<p class="empty">Aucun point de rdv.<br>Ajoutez-en un via « Modifier le match ».</p>`
+        : ""}
 
     ${showForm ? `
     <div class="card">
@@ -610,6 +678,11 @@ function renderDetail(matchId, editIndex) {
         <p class="match-meta" style="margin: 0 0 6px;">Sans compter votre enfant joueur.</p>
         <input id="r-seats" type="number" min="0" max="8" value="${myResponse.seats}">
       </div>
+      ${rdvs.length > 1 ? `
+      <label>Point de départ</label>
+      <select id="r-rdv">${rdvs
+        .map((r, i) => `<option value="${i}" ${rdvIndexOf(myResponse, rdvs.length) === i ? "selected" : ""}>${esc(rdvLabel(r))}</option>`)
+        .join("")}</select>` : ""}
       <div class="section-actions">
         ${mineIdx >= 0 ? `<button class="btn-secondary" id="r-cancel">Annuler</button>` : ""}
         <button class="btn-primary" id="r-save">Enregistrer</button>
@@ -626,7 +699,10 @@ function renderDetail(matchId, editIndex) {
             const detail = carMode(p) !== "no"
               ? `🚗 ${Number(p.seats) || 0} place${(Number(p.seats) || 0) > 1 ? "s" : ""}`
               : "🙋 sans voiture";
-            return `<li data-edit="${i}" style="cursor:pointer"><span>${esc(p.name)}</span><span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
+            const from = rdvs.length > 1
+              ? ` <span class="match-meta">· ${esc(rdvs[rdvIndexOf(p, rdvs.length)].place || "rdv " + (rdvIndexOf(p, rdvs.length) + 1))}</span>`
+              : "";
+            return `<li data-edit="${i}" style="cursor:pointer"><span>${esc(p.name)}${from}</span><span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
           })
           .join("")}</ul></div>
         <p class="match-meta" style="margin: 4px 0 0;">Touchez une réponse pour la corriger.</p>`
@@ -667,6 +743,8 @@ function renderDetail(matchId, editIndex) {
     if (!editingOther) myName = document.getElementById("r-name").value;
     const seatsInput = document.getElementById("r-seats");
     if (seatsInput) myResponse.seats = Number(seatsInput.value) || 0;
+    const rdvInput = document.getElementById("r-rdv");
+    if (rdvInput) myResponse.rdv = Number(rdvInput.value) || 0;
   }
 
   if (showForm) {
@@ -689,6 +767,7 @@ function renderDetail(matchId, editIndex) {
         name,
         car: myResponse.car,
         seats: myResponse.car === "yes" ? Number(myResponse.seats) || 0 : 0,
+        rdv: rdvIndexOf(myResponse, Math.max(1, rdvs.length)),
         updatedAt: Date.now(),
       };
       if (editingOther) {
@@ -711,10 +790,15 @@ function renderDetail(matchId, editIndex) {
 
   document.getElementById("share").onclick = async () => {
     const url = shareUrl(m);
-    const rdvLine = m.rdv || m.rdvTime || riders
-      ? `\n🅿️ Rdv${m.rdvTime ? " à " + m.rdvTime.replace(":", "h") : ""}${m.rdv ? " — " + m.rdv : ""}${riders ? ` · ${riders} joueur${riders > 1 ? "s" : ""} à prendre` : ""}`
-      : "";
-    const text = `🚌 Sondage transport${m.category ? " " + m.category : ""} — ${matchTitle(m)} (${formatDate(m.date, m.time)})${rdvLine}\nRéponds ici : ${url}`;
+    const lines = [];
+    if (m.arrivalTime) lines.push(`🏟️ Sur place à ${m.arrivalTime.replace(":", "h")}`);
+    for (const r of rdvs) {
+      const n = Number(r.toTake) || 0;
+      lines.push(`🅿️ ${rdvLabel(r)}${n ? ` · ${n} joueur${n > 1 ? "s" : ""} à prendre` : ""}`);
+    }
+    const text = `🚌 Sondage transport${m.category ? " " + m.category : ""} — ${matchTitle(m)} (${formatDate(m.date, m.time)})`
+      + (lines.length ? "\n" + lines.join("\n") : "")
+      + `\nRéponds ici : ${url}`;
     if (navigator.share) {
       try { await navigator.share({ text }); return; } catch (e) { /* annulé */ }
     }
