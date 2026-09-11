@@ -226,6 +226,20 @@ function spareHint(g) {
   return canStay.map((p) => p.name).join(", ") + (canStay.length > 1 ? " peuvent rester" : " peut rester");
 }
 
+// Une ligne de la liste des réponses. `spare` : places en trop au point
+// de départ — l'intention du conducteur ne s'affiche que dans ce cas.
+function responseLine(p, idx, spare) {
+  const seats = Number(p.seats) || 0;
+  const tag = carMode(p) !== "no" && spare
+    ? p.ifUnused === "stay" ? ` <span class="tag-stay">peut rester</span>` : ` <span class="tag-come">vient quand même</span>`
+    : "";
+  const detail = carMode(p) !== "no"
+    ? `🚗 ${seats} place${seats > 1 ? "s" : ""}${tag}`
+    : "🙋 sans voiture";
+  return `<li data-edit="${idx}" style="cursor:pointer"><span>${esc(p.name)}</span>` +
+    `<span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
+}
+
 function rdvLabel(r) {
   const time = r.time ? "départ " + r.time.replace(":", "h") : "";
   return [r.place, time].filter(Boolean).join(" — ") || "Point de rdv";
@@ -637,13 +651,16 @@ function renderDetail(matchId, editIndex) {
   // à tort un manque dans l'autre.
   const rdvs = matchRdvs(m);
   const perRdv = rdvs.map((r, i) => {
-    const at = accomp.filter((p) => rdvIndexOf(p, rdvs.length) === i);
+    const members = accomp
+      .map((p, idx) => ({ p, idx }))
+      .filter(({ p }) => rdvIndexOf(p, rdvs.length) === i);
+    const at = members.map(({ p }) => p);
     const atSeats = at.filter((p) => carMode(p) !== "no").reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
     const atDrivers = at.filter((p) => carMode(p) !== "no");
     const atWalkers = at.filter((p) => carMode(p) === "no").length;
     const atRiders = Number(r.toTake) || 0;
     const atToTake = atRiders + atWalkers;
-    return { r, i, drivers: atDrivers, cars: at.length - atWalkers, seats: atSeats, riders: atRiders,
+    return { r, i, members, drivers: atDrivers, cars: at.length - atWalkers, seats: atSeats, riders: atRiders,
       toTake: atToTake, ok: atSeats >= atRiders, spare: Math.max(0, atSeats - atToTake) };
   });
 
@@ -663,12 +680,16 @@ function renderDetail(matchId, editIndex) {
       ? `<p class="match-meta" style="text-align:center; margin: -6px 0 12px;">Assez de places pour les joueurs ✔ — ${toTake - seats} accompagnateur${toTake - seats > 1 ? "s" : ""} sans voiture pas encore casé${toTake - seats > 1 ? "s" : ""}</p>`
       : ""}
 
+    ${rdvs.length ? `<h2>Points de rdv</h2>` : ""}
     ${rdvs.length
       ? perRdv.map((g) => `<div class="card rdv-card">
           <p class="match-title" style="font-size:0.98rem">🅿️ ${esc(rdvLabel(g.r))}</p>
           <p class="match-meta">${g.riders} joueur${g.riders > 1 ? "s" : ""} à prendre · ${g.cars} voiture${g.cars > 1 ? "s" : ""}
             · <span class="${g.ok ? "seats-ok" : "seats-ko"}">${g.seats}/${g.toTake} place${g.toTake > 1 ? "s" : ""}</span></p>
           ${g.spare ? `<p class="match-meta">➕ ${g.spare} place${g.spare > 1 ? "s" : ""} en trop — ${spareHint(g)}</p>` : ""}
+          ${g.members.length
+            ? `<ul class="player-list" style="margin-top:8px">${g.members.map(({ p, idx }) => responseLine(p, idx, g.spare)).join("")}</ul>`
+            : `<p class="match-meta" style="margin-top:8px">Personne n'a encore répondu pour ce point.</p>`}
         </div>`).join("")
       : isAdmin
         ? `<p class="empty">Aucun point de rdv.<br>Ajoutez-en un via « Modifier le match ».</p>`
@@ -702,7 +723,7 @@ function renderDetail(matchId, editIndex) {
         .map((r, i) => `<option value="${i}" ${rdvIndexOf(myResponse, rdvs.length) === i ? "selected" : ""}>${esc(rdvLabel(r))}</option>`)
         .join("")}</select>` : ""}
       <div class="section-actions">
-        ${mineIdx >= 0 ? `<button class="btn-secondary" id="r-cancel">Annuler</button>` : ""}
+        ${mineIdx >= 0 || editIndex != null ? `<button class="btn-secondary" id="r-cancel">Annuler</button>` : ""}
         <button class="btn-primary" id="r-save">Enregistrer</button>
       </div>
     </div>` : `
@@ -710,26 +731,14 @@ function renderDetail(matchId, editIndex) {
       <button class="btn-secondary" id="r-edit">✏️ Modifier ma réponse</button>
     </div>`}
 
-    <h2>Réponses (${accomp.length})</h2>
-    ${accomp.length
-      ? `<div class="card"><ul class="player-list">${accomp
-          .map((p, i) => {
-            const spareHere = rdvs.length ? perRdv[rdvIndexOf(p, rdvs.length)].spare : 0;
-            // L'intention du conducteur n'est utile que s'il y a des places en trop.
-            const tag = carMode(p) !== "no" && spareHere
-              ? p.ifUnused === "stay" ? ` <span class="tag-stay">peut rester</span>` : ` <span class="tag-come">vient quand même</span>`
-              : "";
-            const detail = carMode(p) !== "no"
-              ? `🚗 ${Number(p.seats) || 0} place${(Number(p.seats) || 0) > 1 ? "s" : ""}${tag}`
-              : "🙋 sans voiture";
-            const from = rdvs.length > 1
-              ? ` <span class="match-meta">· ${esc(rdvs[rdvIndexOf(p, rdvs.length)].place || "rdv " + (rdvIndexOf(p, rdvs.length) + 1))}</span>`
-              : "";
-            return `<li data-edit="${i}" style="cursor:pointer"><span>${esc(p.name)}${from}</span><span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
-          })
-          .join("")}</ul></div>
-        <p class="match-meta" style="margin: 4px 0 0;">Touchez une réponse pour la corriger.</p>`
-      : `<p class="empty">Personne n'a encore répondu.</p>`}
+    ${rdvs.length
+      ? accomp.length ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""
+      : accomp.length
+        ? `<h2>Réponses (${accomp.length})</h2>
+           <div class="card"><ul class="player-list">${accomp
+             .map((p, i) => responseLine(p, i, 0)).join("")}</ul></div>
+           <p class="match-meta">Touchez une réponse pour la corriger.</p>`
+        : `<p class="empty">Personne n'a encore répondu.</p>`}
 
     <div class="section-actions">
       <button class="btn-primary" id="share">📤 Partager le sondage</button>
