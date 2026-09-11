@@ -205,3 +205,14 @@ h2 { font-size: 1.15rem; margin: 20px 0 10px; }
 .rdv-row:first-child { border-top: none; margin-top: 0; }
 .seats-ok { color: var(--green); font-weight: 600; }
 .seats-ko { color: var(--red); font-weight: 600; }
+.tag-stay, .tag-come {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 99px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.tag-stay { background: #eceff2; color: var(--muted); }
+.tag-come { background: #e3f0ff; color: var(--primary-dark); }

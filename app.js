@@ -219,6 +219,13 @@ function playersToTake(m) {
   return matchRdvs(m).reduce((sum, r) => sum + (Number(r.toTake) || 0), 0);
 }
 
+// Qui pourrait laisser sa voiture quand il y a des places en trop.
+function spareHint(g) {
+  const canStay = g.drivers.filter((p) => p.ifUnused === "stay");
+  if (!canStay.length) return "tout le monde souhaite venir";
+  return canStay.map((p) => p.name).join(", ") + (canStay.length > 1 ? " peuvent rester" : " peut rester");
+}
+
 function rdvLabel(r) {
   const time = r.time ? "départ " + r.time.replace(":", "h") : "";
   return [r.place, time].filter(Boolean).join(" — ") || "Point de rdv";
@@ -585,7 +592,7 @@ function carMode(p) {
 
 // État transitoire du formulaire de réponse.
 // Une réponse par accompagnateur : nom, je conduis, places ou joueurs au rdv.
-let myResponse = { car: null, seats: 3, rdv: 0 };
+let myResponse = { car: null, seats: 3, rdv: 0, ifUnused: "come" };
 
 // Les infos voiture sont mémorisées d'une réponse sur l'autre.
 function loadCarPref() {
@@ -609,10 +616,10 @@ function renderDetail(matchId, editIndex) {
   const editingOther = editIndex != null && editIndex !== mineIdx;
 
   if (editing) {
-    myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3, rdv: Number(editing.rdv) || 0 };
+    myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3, rdv: Number(editing.rdv) || 0, ifUnused: editing.ifUnused || "come" };
   } else {
     const pref = loadCarPref();
-    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3, rdv: 0 };
+    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3, rdv: 0, ifUnused: pref.ifUnused || "come" };
   }
   const formName = editingOther ? editing.name : myName;
 
@@ -632,9 +639,12 @@ function renderDetail(matchId, editIndex) {
   const perRdv = rdvs.map((r, i) => {
     const at = accomp.filter((p) => rdvIndexOf(p, rdvs.length) === i);
     const atSeats = at.filter((p) => carMode(p) !== "no").reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
+    const atDrivers = at.filter((p) => carMode(p) !== "no");
     const atWalkers = at.filter((p) => carMode(p) === "no").length;
     const atRiders = Number(r.toTake) || 0;
-    return { r, i, cars: at.length - atWalkers, seats: atSeats, riders: atRiders, toTake: atRiders + atWalkers, ok: atSeats >= atRiders };
+    const atToTake = atRiders + atWalkers;
+    return { r, i, drivers: atDrivers, cars: at.length - atWalkers, seats: atSeats, riders: atRiders,
+      toTake: atToTake, ok: atSeats >= atRiders, spare: Math.max(0, atSeats - atToTake) };
   });
 
   app.innerHTML = `
@@ -658,6 +668,7 @@ function renderDetail(matchId, editIndex) {
           <p class="match-title" style="font-size:0.98rem">🅿️ ${esc(rdvLabel(g.r))}</p>
           <p class="match-meta">${g.riders} joueur${g.riders > 1 ? "s" : ""} à prendre · ${g.cars} voiture${g.cars > 1 ? "s" : ""}
             · <span class="${g.ok ? "seats-ok" : "seats-ko"}">${g.seats}/${g.toTake} place${g.toTake > 1 ? "s" : ""}</span></p>
+          ${g.spare ? `<p class="match-meta">➕ ${g.spare} place${g.spare > 1 ? "s" : ""} en trop — ${spareHint(g)}</p>` : ""}
         </div>`).join("")
       : isAdmin
         ? `<p class="empty">Aucun point de rdv.<br>Ajoutez-en un via « Modifier le match ».</p>`
@@ -678,6 +689,13 @@ function renderDetail(matchId, editIndex) {
         <p class="match-meta" style="margin: 0 0 6px;">Sans compter votre enfant joueur.</p>
         <input id="r-seats" type="number" min="0" max="8" value="${myResponse.seats}">
       </div>
+      <div id="unused-block" ${myResponse.car === "yes" ? "" : "hidden"}>
+        <label>Si ma voiture n'est finalement pas utile</label>
+        <div class="choice-group">
+          <button id="u-come" class="${myResponse.ifUnused !== "stay" ? "selected-yes" : ""}">Je viens quand même</button>
+          <button id="u-stay" class="${myResponse.ifUnused === "stay" ? "selected-no" : ""}">Je peux rester</button>
+        </div>
+      </div>
       ${rdvs.length > 1 ? `
       <label>Point de départ</label>
       <select id="r-rdv">${rdvs
@@ -696,8 +714,13 @@ function renderDetail(matchId, editIndex) {
     ${accomp.length
       ? `<div class="card"><ul class="player-list">${accomp
           .map((p, i) => {
+            const spareHere = rdvs.length ? perRdv[rdvIndexOf(p, rdvs.length)].spare : 0;
+            // L'intention du conducteur n'est utile que s'il y a des places en trop.
+            const tag = carMode(p) !== "no" && spareHere
+              ? p.ifUnused === "stay" ? ` <span class="tag-stay">peut rester</span>` : ` <span class="tag-come">vient quand même</span>`
+              : "";
             const detail = carMode(p) !== "no"
-              ? `🚗 ${Number(p.seats) || 0} place${(Number(p.seats) || 0) > 1 ? "s" : ""}`
+              ? `🚗 ${Number(p.seats) || 0} place${(Number(p.seats) || 0) > 1 ? "s" : ""}${tag}`
               : "🙋 sans voiture";
             const from = rdvs.length > 1
               ? ` <span class="match-meta">· ${esc(rdvs[rdvIndexOf(p, rdvs.length)].place || "rdv " + (rdvIndexOf(p, rdvs.length) + 1))}</span>`
@@ -750,12 +773,17 @@ function renderDetail(matchId, editIndex) {
   if (showForm) {
     document.getElementById("c-yes").onclick = () => { myResponse.car = "yes"; keepForm(); redrawForm(); };
     document.getElementById("c-no").onclick = () => { myResponse.car = "no"; keepForm(); redrawForm(); };
+    document.getElementById("u-come").onclick = () => { myResponse.ifUnused = "come"; keepForm(); redrawForm(); };
+    document.getElementById("u-stay").onclick = () => { myResponse.ifUnused = "stay"; keepForm(); redrawForm(); };
 
     // Bascule oui/non sans re-rendre toute la page (le nom saisi est conservé).
     function redrawForm() {
       document.getElementById("c-yes").className = myResponse.car === "yes" ? "selected-yes" : "";
       document.getElementById("c-no").className = myResponse.car === "no" ? "selected-no" : "";
       document.getElementById("seats-block").hidden = myResponse.car !== "yes";
+      document.getElementById("unused-block").hidden = myResponse.car !== "yes";
+      document.getElementById("u-come").className = myResponse.ifUnused !== "stay" ? "selected-yes" : "";
+      document.getElementById("u-stay").className = myResponse.ifUnused === "stay" ? "selected-no" : "";
     }
 
     document.getElementById("r-save").onclick = () => {
@@ -767,6 +795,7 @@ function renderDetail(matchId, editIndex) {
         name,
         car: myResponse.car,
         seats: myResponse.car === "yes" ? Number(myResponse.seats) || 0 : 0,
+        ifUnused: myResponse.car === "yes" ? myResponse.ifUnused || "come" : "",
         rdv: rdvIndexOf(myResponse, Math.max(1, rdvs.length)),
         updatedAt: Date.now(),
       };
@@ -777,7 +806,7 @@ function renderDetail(matchId, editIndex) {
       } else {
         myName = name;
         try { localStorage.setItem(STORAGE_KEY + ":name", name); } catch (e) {}
-        saveCarPref({ car: entry.car, seats: myResponse.seats });
+        saveCarPref({ car: entry.car, seats: myResponse.seats, ifUnused: myResponse.ifUnused });
         const idx = m.players.findIndex((p) => p.name.trim().toLowerCase() === name.toLowerCase());
         if (idx >= 0) m.players[idx] = entry;
         else m.players.push(entry);

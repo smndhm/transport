@@ -11,9 +11,9 @@ Petite app pour organiser les déplacements aux matchs : qui vient, qui conduit,
 - Créer un match à l'extérieur (catégorie, adversaire, date/heure, lieu, heure sur place, et autant de points de rdv que nécessaire avec pour chacun son heure de départ et son nombre de joueurs à prendre) — l'app ne sert que pour les déplacements
 - Importer les matchs depuis Kalisport : lien d'export du calendrier (webcal:// ou https://), fichier .ics ou copier-coller, avec détection des doublons au ré-import
 - Si le lien du calendrier est accepté par le serveur (CORS), il est mémorisé et un bouton « Actualiser » synchronise les matchs en un clic
-- Une réponse par accompagnateur : nom, je conduis (oui/non), et si oui le nombre de places (sans compter son enfant joueur) ; le point de départ est demandé seulement quand le match en compte plusieurs
+- Une réponse par accompagnateur : nom, je conduis (oui/non), et si oui le nombre de places (sans compter son enfant joueur) et ce qu'il fait si sa voiture n'est finalement pas utile (venir quand même ou rester) ; le point de départ est demandé seulement quand le match en compte plusieurs
 - Les infos voiture sont mémorisées d'un match sur l'autre ; une fois répondu, le formulaire laisse place à un bouton « Modifier ma réponse », et chaque réponse de la liste s'édite d'un simple toucher
-- Récapitulatif : voitures, et places libres vs personnes à prendre (les joueurs annoncés + les accompagnateurs sans voiture) — vert dès que les joueurs sont couverts, avec une note si des accompagnateurs restent à caser, plus un bilan par point de rdv
+- Récapitulatif : voitures, et places libres vs personnes à prendre (les joueurs annoncés + les accompagnateurs sans voiture) — vert dès que les joueurs sont couverts, avec une note si des accompagnateurs restent à caser, plus un bilan par point de rdv qui signale les places en trop et nomme les conducteurs prêts à laisser leur voiture
 - Partage du sondage par lien (à coller dans WhatsApp) — pas de compte, pas de serveur
 
 ## Comment ça marche (mode POC)
