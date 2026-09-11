@@ -11,7 +11,7 @@ Petite app pour organiser les déplacements aux matchs : qui vient, qui conduit,
 - Si le lien du calendrier est accepté par le serveur (CORS), il est mémorisé et un bouton « Actualiser » synchronise les matchs en un clic
 - Une réponse par accompagnateur, trois champs : nom, je conduis (oui/non), puis nombre de places (sans compter son enfant joueur) ou nombre de joueurs déposés au point de rendez-vous
 - Les infos voiture sont mémorisées d'un match sur l'autre ; une fois répondu, le formulaire laisse place à un bouton « Modifier ma réponse », et chaque réponse de la liste s'édite d'un simple toucher
-- Récapitulatif : voitures, et places libres vs joueurs à prendre au rendez-vous (vert/rouge)
+- Récapitulatif : voitures, et places libres vs personnes à prendre au rendez-vous (joueurs déposés + accompagnateurs sans voiture) — vert dès que les joueurs sont couverts, avec une note si des accompagnateurs restent à caser
 - Partage du sondage par lien (à coller dans WhatsApp) — pas de compte, pas de serveur
 
 ## Comment ça marche (mode POC)

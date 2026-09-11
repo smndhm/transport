@@ -242,8 +242,9 @@ function renderList() {
 function matchCard(m, past = false) {
   const accomp = m.players.filter((p) => p.status !== "absent");
   const cars = accomp.filter((p) => carMode(p) !== "no");
+  const walkers = accomp.filter((p) => carMode(p) === "no");
   const seats = cars.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
-  const riders = accomp.filter((p) => carMode(p) === "no").reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
+  const riders = walkers.reduce((sum, p) => sum + (Number(p.riders) || 0), 0) + walkers.length;
   const badge = past
     ? `<span class="badge past">terminé</span>`
     : m.type === "home"
@@ -514,10 +515,13 @@ function renderDetail(matchId, editIndex) {
   const formName = editingOther ? editing.name : myName;
 
   const drivers = accomp.filter((p) => carMode(p) !== "no");
+  const walkers = accomp.filter((p) => carMode(p) === "no");
   const seats = drivers.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
-  const riders = accomp
-    .filter((p) => carMode(p) === "no")
-    .reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
+  // Joueurs déposés au point de rdv : c'est eux qui décident du feu vert.
+  const riders = walkers.reduce((sum, p) => sum + (Number(p.riders) || 0), 0);
+  // Un accompagnateur sans voiture est lui aussi à prendre.
+  const toTake = riders + walkers.length;
+  const playersOk = seats >= riders;
 
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
@@ -530,8 +534,11 @@ function renderDetail(matchId, editIndex) {
 
     <div class="summary">
       <div class="stat"><div class="num">${drivers.length}</div><div class="lbl">voitures</div></div>
-      <div class="stat ${seats >= riders ? "ok" : "ko"}"><div class="num">${seats}/${riders}</div><div class="lbl">places / joueurs au rdv</div></div>
+      <div class="stat ${playersOk ? "ok" : "ko"}"><div class="num">${seats}/${toTake}</div><div class="lbl">places / à prendre</div></div>
     </div>
+    ${playersOk && seats < toTake
+      ? `<p class="match-meta" style="text-align:center; margin: -6px 0 12px;">Assez de places pour les joueurs ✔ — ${toTake - seats} accompagnateur${toTake - seats > 1 ? "s" : ""} sans voiture pas encore casé${toTake - seats > 1 ? "s" : ""}</p>`
+      : ""}
 
     ${showForm ? `
     <div class="card">
@@ -550,7 +557,8 @@ function renderDetail(matchId, editIndex) {
       </div>
       <div id="riders-block" ${myResponse.car === "no" ? "" : "hidden"}>
         <label>Joueurs à prendre au point de rdv</label>
-        <p class="match-meta" style="margin: 0 0 6px;">Combien de joueurs déposez-vous au point de rendez-vous ?</p>
+        <p class="match-meta" style="margin: 0 0 6px;">Combien de joueurs déposez-vous au point
+        de rendez-vous ? Vous-même serez aussi compté parmi les personnes à prendre.</p>
         <input id="r-riders" type="number" min="0" max="6" value="${myResponse.riders}">
       </div>
       <div class="section-actions">
@@ -569,7 +577,7 @@ function renderDetail(matchId, editIndex) {
             const nb = Number(p.riders) || 0;
             const detail = carMode(p) !== "no"
               ? `🚗 ${Number(p.seats) || 0} place${(Number(p.seats) || 0) > 1 ? "s" : ""}`
-              : nb ? `🙋 ${nb} joueur${nb > 1 ? "s" : ""} au rdv` : "🙋 sans voiture";
+              : `🙋 ${nb + 1} à prendre${nb ? ` (${nb} joueur${nb > 1 ? "s" : ""} + soi)` : ""}`;
             return `<li data-edit="${i}" style="cursor:pointer"><span>${esc(p.name)}</span><span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
           })
           .join("")}</ul></div>
