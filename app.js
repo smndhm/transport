@@ -24,6 +24,20 @@ let state = loadState();
 let myName = "";
 try { myName = localStorage.getItem(STORAGE_KEY + ":name") || ""; } catch (e) {}
 
+// Mode organisateur : activé par ?admin dans l'URL puis mémorisé sur
+// l'appareil. ?admin=0 le désactive (pour revoir l'app en mode parent).
+// Ce n'est pas une sécurité, juste un paramètre non communiqué.
+const isAdmin = (() => {
+  const p = new URLSearchParams(location.search).get("admin");
+  const off = p === "0" || p === "off";
+  try {
+    if (p === null) return localStorage.getItem(STORAGE_KEY + ":admin") === "1";
+    if (off) localStorage.removeItem(STORAGE_KEY + ":admin");
+    else localStorage.setItem(STORAGE_KEY + ":admin", "1");
+  } catch (e) { /* stockage indisponible : le paramètre vaut pour la session */ }
+  return !off;
+})();
+
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -70,7 +84,7 @@ function mergeMatch(incoming) {
 function handleIncomingLink() {
   const hash = location.hash;
   if (!hash.startsWith("#m=")) return null;
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", location.pathname + location.search);
   try {
     const match = decodeMatch(hash.slice(3));
     if (!match || !match.id || !Array.isArray(match.players)) return null;
@@ -208,14 +222,17 @@ function renderList() {
   const upcoming = matches.filter((m) => !isPast(m));
   const past = matches.filter(isPast);
 
-  let html = `<div class="section-actions">
-    <button class="btn-primary" id="new-match">+ Nouveau match</button>
-    <button class="btn-secondary" id="import-ics">📥 Import Kalisport</button>
-  </div>`;
-  if (savedIcsUrl) {
+  let html = "";
+  if (isAdmin) {
     html += `<div class="section-actions">
-      <button class="btn-secondary" id="refresh-ics">🔄 Actualiser depuis Kalisport</button>
+      <button class="btn-primary" id="new-match">+ Nouveau match</button>
+      <button class="btn-secondary" id="import-ics">📥 Import Kalisport</button>
     </div>`;
+    if (savedIcsUrl) {
+      html += `<div class="section-actions">
+        <button class="btn-secondary" id="refresh-ics">🔄 Actualiser depuis Kalisport</button>
+      </div>`;
+    }
   }
 
   // Hiérarchie : catégorie → matchs (→ point de rdv dans le détail).
@@ -238,7 +255,9 @@ function renderList() {
 
   html += `<h2>À venir</h2>`;
   if (!upcoming.length) {
-    html += `<p class="empty">Aucun match prévu.<br>Créez-en un ou ouvrez un lien partagé par l'équipe.</p>`;
+    html += isAdmin
+      ? `<p class="empty">Aucun match prévu.<br>Créez-en un ou importez le calendrier Kalisport.</p>`
+      : `<p class="empty">Aucun match pour l'instant.<br>Ouvrez le lien d'un match partagé par l'organisateur : il s'ajoutera ici.</p>`;
   } else {
     html += renderGroups(upcoming);
   }
@@ -248,10 +267,12 @@ function renderList() {
   }
 
   app.innerHTML = html;
-  document.getElementById("new-match").onclick = () => renderForm();
-  document.getElementById("import-ics").onclick = () => renderImport();
-  const refreshBtn = document.getElementById("refresh-ics");
-  if (refreshBtn) refreshBtn.onclick = () => refreshFromKalisport();
+  if (isAdmin) {
+    document.getElementById("new-match").onclick = () => renderForm();
+    document.getElementById("import-ics").onclick = () => renderImport();
+    const refreshBtn = document.getElementById("refresh-ics");
+    if (refreshBtn) refreshBtn.onclick = () => refreshFromKalisport();
+  }
   app.querySelectorAll("[data-match]").forEach((el) => {
     el.onclick = () => renderDetail(el.dataset.match);
   });
@@ -271,6 +292,7 @@ function matchCard(m, past = false) {
 }
 
 function renderForm(match) {
+  if (!isAdmin) return renderList();
   const m = match || { opponent: "", date: "", time: "", location: "", category: "", rdv: "", rdvTime: "", type: "away" };
   const cats = [...new Set(state.matches.map((x) => x.category).filter(Boolean))];
   app.innerHTML = `
@@ -377,6 +399,7 @@ async function refreshFromKalisport() {
 }
 
 function renderImport() {
+  if (!isAdmin) return renderList();
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
     <div class="card">
@@ -608,20 +631,23 @@ function renderDetail(matchId, editIndex) {
     <div class="section-actions">
       <button class="btn-primary" id="share">📤 Partager le sondage</button>
     </div>
+    ${isAdmin ? `
     <div class="section-actions">
       <button class="btn-secondary" id="edit">Modifier le match</button>
       <button class="btn-danger" id="delete">Supprimer</button>
-    </div>`;
+    </div>` : ""}`;
 
   document.getElementById("back").onclick = () => renderList();
-  document.getElementById("edit").onclick = () => renderForm(m);
-  document.getElementById("delete").onclick = () => {
-    if (confirm("Supprimer ce match ?")) {
-      state.matches = state.matches.filter((x) => x.id !== m.id);
-      saveState();
-      renderList();
-    }
-  };
+  if (isAdmin) {
+    document.getElementById("edit").onclick = () => renderForm(m);
+    document.getElementById("delete").onclick = () => {
+      if (confirm("Supprimer ce match ?")) {
+        state.matches = state.matches.filter((x) => x.id !== m.id);
+        saveState();
+        renderList();
+      }
+    };
+  }
 
   const rerender = () => renderDetail(matchId);
 
@@ -705,6 +731,14 @@ function renderDetail(matchId, editIndex) {
 
 document.getElementById("home-link").onclick = () => renderList();
 
-const importedId = handleIncomingLink();
-if (importedId) renderDetail(importedId);
-else renderList();
+function openIncomingOrList() {
+  const importedId = handleIncomingLink();
+  if (importedId) renderDetail(importedId);
+  else renderList();
+}
+
+// Un lien ouvert alors que l'app tourne déjà ne change que le #, sans
+// recharger la page : on traite aussi ce cas.
+window.addEventListener("hashchange", openIncomingOrList);
+
+openIncomingOrList();
