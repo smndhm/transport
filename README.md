@@ -2,11 +2,12 @@
 
 Petite app pour organiser les déplacements aux matchs : qui vient, qui conduit, combien de places — sans se perdre dans les fils WhatsApp.
 
-**POC — itération 1.**
+**POC — itération 2.**
 
 ## Fonctionnalités actuelles
 
 - Créer un match (adversaire, date/heure, domicile ou extérieur, lieu)
+- Importer les matchs depuis Kalisport : export calendrier (.ics) → fichier ou copier-coller dans l'app, avec détection des doublons au ré-import
 - Chaque joueur répond : présent/absent, je peux conduire, nombre de places passagers
 - Récapitulatif : nombre de présents, voitures, places dispo vs passagers à transporter
 - Partage du sondage par lien (à coller dans WhatsApp) — pas de compte, pas de serveur
@@ -39,3 +40,4 @@ python3 -m http.server 8000
 - [ ] Heure et lieu de rendez-vous pour le départ
 - [ ] Notifications / relances des joueurs qui n'ont pas répondu
 - [ ] Liste de l'équipe pré-remplie
+- [ ] Synchro Kalisport automatique via GitHub Actions (lien iCal en secret du dépôt, plus besoin d'import manuel)

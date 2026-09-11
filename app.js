@@ -84,6 +84,64 @@ function handleIncomingLink() {
   }
 }
 
+// ---------- Import iCal (Kalisport) ----------
+
+function unescapeICS(v) {
+  return v.replace(/\\n/gi, " ").replace(/\\([,;\\])/g, "$1").trim();
+}
+
+// Parse minimal d'un .ics : SUMMARY, DTSTART, LOCATION, UID par VEVENT.
+function parseICS(text) {
+  const unfolded = text.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "");
+  const events = [];
+  let cur = null;
+  for (const line of unfolded.split("\n")) {
+    if (line.startsWith("BEGIN:VEVENT")) cur = {};
+    else if (line.startsWith("END:VEVENT")) { if (cur && cur.summary && cur.start) events.push(cur); cur = null; }
+    else if (cur) {
+      const idx = line.indexOf(":");
+      if (idx < 0) continue;
+      const key = line.slice(0, idx).split(";")[0].toUpperCase();
+      const value = line.slice(idx + 1);
+      if (key === "SUMMARY") cur.summary = unescapeICS(value);
+      else if (key === "LOCATION") cur.location = unescapeICS(value);
+      else if (key === "UID") cur.uid = value.trim();
+      else if (key === "DTSTART") cur.start = icsDate(value.trim());
+      else if (key === "LAST-MODIFIED" || (key === "DTSTAMP" && !cur.modified)) cur.modified = icsEpoch(value.trim());
+    }
+  }
+  return events;
+}
+
+function icsDate(v) {
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?/);
+  if (!m) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  if (!m[4]) return { date: `${m[1]}-${m[2]}-${m[3]}`, time: "" };
+  const d = m[7]
+    ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)))
+    : new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}
+
+function icsEpoch(v) {
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?/);
+  if (!m) return 0;
+  const args = [+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)];
+  return m[7] ? Date.UTC(...args) : new Date(...args).getTime();
+}
+
+// Id stable dérivé de l'UID iCal : réimporter ne crée pas de doublon.
+function icsId(ev) {
+  const s = ev.uid || ev.summary + ev.start.date;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return "ics" + (h >>> 0).toString(36);
+}
+
 // ---------- Helpers ----------
 
 function esc(s) {
@@ -100,6 +158,12 @@ function formatDate(dateStr, timeStr) {
   out = out.charAt(0).toUpperCase() + out.slice(1);
   if (timeStr) out += " à " + timeStr.replace(":", "h");
   return out;
+}
+
+// Un match saisi à la main affiche "vs Adversaire" ; un match importé
+// garde l'intitulé complet de l'événement Kalisport.
+function matchTitle(m) {
+  return m.imported ? m.opponent : "vs " + m.opponent;
 }
 
 function isPast(match) {
@@ -128,13 +192,16 @@ function renderList() {
   const upcoming = matches.filter((m) => !isPast(m));
   const past = matches.filter(isPast);
 
-  let html = `<button class="btn-primary" id="new-match">+ Nouveau match</button>`;
+  let html = `<div class="section-actions">
+    <button class="btn-primary" id="new-match">+ Nouveau match</button>
+    <button class="btn-secondary" id="import-ics">📥 Import Kalisport</button>
+  </div>`;
 
   html += `<h2>À venir</h2>`;
   if (!upcoming.length) {
     html += `<p class="empty">Aucun match prévu.<br>Créez-en un ou ouvrez un lien partagé par l'équipe.</p>`;
   } else {
-    html += upcoming.map(matchCard).join("");
+    html += upcoming.map((m) => matchCard(m)).join("");
   }
 
   if (past.length) {
@@ -143,6 +210,7 @@ function renderList() {
 
   app.innerHTML = html;
   document.getElementById("new-match").onclick = () => renderForm();
+  document.getElementById("import-ics").onclick = () => renderImport();
   app.querySelectorAll("[data-match]").forEach((el) => {
     el.onclick = () => renderDetail(el.dataset.match);
   });
@@ -156,7 +224,7 @@ function matchCard(m, past = false) {
       ? `<span class="badge home">domicile</span>`
       : `<span class="badge away">extérieur</span>`;
   return `<div class="card clickable" data-match="${m.id}">
-    <p class="match-title">vs ${esc(m.opponent)} ${badge}</p>
+    <p class="match-title">${esc(matchTitle(m))} ${badge}</p>
     <p class="match-meta">${esc(formatDate(m.date, m.time))} · ${present} présent${present > 1 ? "s" : ""}</p>
   </div>`;
 }
@@ -211,6 +279,93 @@ function renderForm(match) {
   };
 }
 
+function renderImport() {
+  app.innerHTML = `
+    <button class="btn-link" id="back">← Tous les matchs</button>
+    <div class="card">
+      <h2 style="margin-top:0">📥 Importer depuis Kalisport</h2>
+      <p class="match-meta">Dans Kalisport, exportez votre calendrier (fichier .ics),
+      puis déposez le fichier ici ou collez son contenu.</p>
+      <label>Fichier .ics</label>
+      <input id="i-file" type="file" accept=".ics,text/calendar">
+      <label>… ou contenu collé</label>
+      <textarea id="i-text" rows="5" placeholder="BEGIN:VCALENDAR…"
+        style="font: inherit; width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px;"></textarea>
+      <div class="section-actions">
+        <button class="btn-primary" id="i-parse">Analyser</button>
+      </div>
+      <div id="i-results"></div>
+    </div>`;
+
+  document.getElementById("back").onclick = () => renderList();
+
+  let events = [];
+  const analyse = (text) => {
+    events = parseICS(text);
+    const results = document.getElementById("i-results");
+    if (!events.length) {
+      results.innerHTML = `<p class="empty">Aucun événement trouvé dans ce fichier.</p>`;
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    results.innerHTML = `
+      <label>Événements trouvés (${events.length}) — cochez ceux à importer</label>
+      <ul class="player-list">${events
+        .map((ev, i) => {
+          const future = ev.start.date >= today;
+          const known = state.matches.some((m) => m.id === icsId(ev));
+          return `<li><label style="display:flex; gap:8px; align-items:center; font-weight:400; margin:0; width:100%;">
+            <input type="checkbox" data-ev="${i}" style="width:auto" ${future && !known ? "checked" : ""}>
+            <span style="flex:1">${esc(ev.summary)}<br>
+              <span class="match-meta">${esc(formatDate(ev.start.date, ev.start.time))}${ev.location ? " · " + esc(ev.location) : ""}${known ? " · déjà importé" : ""}</span>
+            </span>
+          </label></li>`;
+        })
+        .join("")}</ul>
+      <div class="section-actions">
+        <button class="btn-primary" id="i-import">Importer la sélection</button>
+      </div>`;
+
+    document.getElementById("i-import").onclick = () => {
+      const checked = [...results.querySelectorAll("input[data-ev]:checked")];
+      if (!checked.length) return toast("Rien de sélectionné");
+      for (const box of checked) {
+        const ev = events[Number(box.dataset.ev)];
+        mergeMatch({
+          id: icsId(ev),
+          opponent: ev.summary,
+          date: ev.start.date,
+          time: ev.start.time,
+          type: "away",
+          location: ev.location || "",
+          imported: true,
+          players: [],
+          // L'horodatage Kalisport permet au ré-import de propager un changement
+          // d'horaire, sans écraser une modification manuelle plus récente.
+          updatedAt: ev.modified || 0,
+        });
+      }
+      saveState();
+      toast(`${checked.length} match${checked.length > 1 ? "s" : ""} importé${checked.length > 1 ? "s" : ""} ✔`);
+      renderList();
+    };
+  };
+
+  document.getElementById("i-parse").onclick = () => {
+    const file = document.getElementById("i-file").files[0];
+    const text = document.getElementById("i-text").value.trim();
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => analyse(reader.result);
+      reader.readAsText(file);
+    } else if (text) {
+      analyse(text);
+    } else {
+      toast("Choisissez un fichier ou collez le contenu");
+    }
+  };
+}
+
 // État transitoire du formulaire de réponse
 let myResponse = { status: null, car: false, seats: 3 };
 
@@ -230,7 +385,7 @@ function renderDetail(matchId) {
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
     <div class="card">
-      <p class="match-title">vs ${esc(m.opponent)}
+      <p class="match-title">${esc(matchTitle(m))}
         ${m.type === "home" ? '<span class="badge home">domicile</span>' : '<span class="badge away">extérieur</span>'}
       </p>
       <p class="match-meta">${esc(formatDate(m.date, m.time))}${m.location ? " · " + esc(m.location) : ""}</p>
@@ -335,7 +490,7 @@ function renderDetail(matchId) {
 
   document.getElementById("share").onclick = async () => {
     const url = shareUrl(m);
-    const text = `🚌 Sondage transport — vs ${m.opponent} (${formatDate(m.date, m.time)})\nRéponds ici : ${url}`;
+    const text = `🚌 Sondage transport — ${matchTitle(m)} (${formatDate(m.date, m.time)})\nRéponds ici : ${url}`;
     if (navigator.share) {
       try { await navigator.share({ text }); return; } catch (e) { /* annulé */ }
     }
