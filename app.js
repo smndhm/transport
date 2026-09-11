@@ -537,9 +537,10 @@ function renderDetail(matchId) {
           <button id="c-no" class="${myResponse.car === "no" ? "selected-no" : ""}">Non</button>
         </div>
         <div id="seats-block" ${myResponse.car !== "no" ? "" : "hidden"}>
-          <label>Places libres pour les autres joueurs</label>
-          <p class="match-meta" style="margin: 0 0 6px;">Sans compter le conducteur ni votre
-          enfant s'il joue. Ex : 5 sièges − vous − votre enfant = <strong>3 places libres</strong>.</p>
+          <label>Places libres — sans compter votre enfant joueur</label>
+          <p class="match-meta" style="margin: 0 0 6px;">Votre enfant a déjà sa place dans
+          votre voiture : n'annoncez que les places restantes pour les autres.
+          Ex : 5 sièges − vous − votre enfant = <strong>3 places libres</strong>.</p>
           <input id="r-seats" type="number" min="0" max="8" value="${myResponse.seats}">
         </div>
         <div id="need-block" ${myResponse.car === "no" ? "" : "hidden"}>
