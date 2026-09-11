@@ -196,6 +196,11 @@ function renderList() {
     <button class="btn-primary" id="new-match">+ Nouveau match</button>
     <button class="btn-secondary" id="import-ics">📥 Import Kalisport</button>
   </div>`;
+  if (savedIcsUrl) {
+    html += `<div class="section-actions">
+      <button class="btn-secondary" id="refresh-ics">🔄 Actualiser depuis Kalisport</button>
+    </div>`;
+  }
 
   html += `<h2>À venir</h2>`;
   if (!upcoming.length) {
@@ -211,6 +216,8 @@ function renderList() {
   app.innerHTML = html;
   document.getElementById("new-match").onclick = () => renderForm();
   document.getElementById("import-ics").onclick = () => renderImport();
+  const refreshBtn = document.getElementById("refresh-ics");
+  if (refreshBtn) refreshBtn.onclick = () => refreshFromKalisport();
   app.querySelectorAll("[data-match]").forEach((el) => {
     el.onclick = () => renderDetail(el.dataset.match);
   });
@@ -279,14 +286,68 @@ function renderForm(match) {
   };
 }
 
+function icsHttpUrl(link) {
+  return link.trim().replace(/^webcal:\/\//i, "https://");
+}
+
+let savedIcsUrl = "";
+try { savedIcsUrl = localStorage.getItem(STORAGE_KEY + ":icsurl") || ""; } catch (e) {}
+
+// Importe silencieusement les événements à venir (et ceux déjà connus,
+// pour propager les changements d'horaire). Renvoie le nombre traité.
+function mergeEvents(events) {
+  const today = new Date().toISOString().slice(0, 10);
+  let count = 0;
+  for (const ev of events) {
+    const id = icsId(ev);
+    if (ev.start.date < today && !state.matches.some((m) => m.id === id)) continue;
+    mergeMatch({
+      id,
+      opponent: ev.summary,
+      date: ev.start.date,
+      time: ev.start.time,
+      type: "away",
+      location: ev.location || "",
+      imported: true,
+      players: [],
+      updatedAt: ev.modified || 0,
+    });
+    count++;
+  }
+  saveState();
+  return count;
+}
+
+async function fetchIcs(link) {
+  const res = await fetch(icsHttpUrl(link));
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.text();
+}
+
+async function refreshFromKalisport() {
+  toast("Actualisation…");
+  try {
+    const events = parseICS(await fetchIcs(savedIcsUrl));
+    const count = mergeEvents(events);
+    toast(`Calendrier à jour ✔ (${count} match${count > 1 ? "s" : ""})`);
+    renderList();
+  } catch (e) {
+    toast("Impossible de joindre le calendrier — réessayez ou passez par le fichier .ics");
+  }
+}
+
 function renderImport() {
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
     <div class="card">
       <h2 style="margin-top:0">📥 Importer depuis Kalisport</h2>
-      <p class="match-meta">Dans Kalisport, exportez votre calendrier (fichier .ics),
-      puis déposez le fichier ici ou collez son contenu.</p>
-      <label>Fichier .ics</label>
+      <p class="match-meta">Collez le lien d'export du calendrier Kalisport
+      (webcal://… ou https://…). Si le serveur refuse la lecture directe,
+      passez par le fichier .ics.</p>
+      <label>Lien du calendrier</label>
+      <input id="i-url" type="url" value="${esc(savedIcsUrl)}" placeholder="webcal://…">
+      <div id="i-url-fallback"></div>
+      <label>… ou fichier .ics</label>
       <input id="i-file" type="file" accept=".ics,text/calendar">
       <label>… ou contenu collé</label>
       <textarea id="i-text" rows="5" placeholder="BEGIN:VCALENDAR…"
@@ -351,7 +412,8 @@ function renderImport() {
     };
   };
 
-  document.getElementById("i-parse").onclick = () => {
+  document.getElementById("i-parse").onclick = async () => {
+    const url = document.getElementById("i-url").value.trim();
     const file = document.getElementById("i-file").files[0];
     const text = document.getElementById("i-text").value.trim();
     if (file) {
@@ -360,8 +422,23 @@ function renderImport() {
       reader.readAsText(file);
     } else if (text) {
       analyse(text);
+    } else if (url) {
+      toast("Récupération du calendrier…");
+      try {
+        const content = await fetchIcs(url);
+        savedIcsUrl = url;
+        try { localStorage.setItem(STORAGE_KEY + ":icsurl", url); } catch (e) {}
+        analyse(content);
+      } catch (e) {
+        // Lecture directe refusée (CORS) ou réseau : on guide vers le fichier.
+        document.getElementById("i-url-fallback").innerHTML = `
+          <p class="match-meta" style="color: var(--red); margin-top: 6px;">
+          Le serveur du calendrier refuse la lecture directe depuis l'app.
+          Pas grave : <a href="${esc(icsHttpUrl(url))}" download>téléchargez le fichier .ics</a>
+          puis déposez-le ci-dessous.</p>`;
+      }
     } else {
-      toast("Choisissez un fichier ou collez le contenu");
+      toast("Collez un lien, choisissez un fichier ou collez le contenu");
     }
   };
 }

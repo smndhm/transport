@@ -7,7 +7,8 @@ Petite app pour organiser les déplacements aux matchs : qui vient, qui conduit,
 ## Fonctionnalités actuelles
 
 - Créer un match (adversaire, date/heure, domicile ou extérieur, lieu)
-- Importer les matchs depuis Kalisport : export calendrier (.ics) → fichier ou copier-coller dans l'app, avec détection des doublons au ré-import
+- Importer les matchs depuis Kalisport : lien d'export du calendrier (webcal:// ou https://), fichier .ics ou copier-coller, avec détection des doublons au ré-import
+- Si le lien du calendrier est accepté par le serveur (CORS), il est mémorisé et un bouton « Actualiser » synchronise les matchs en un clic
 - Chaque joueur répond : présent/absent, je peux conduire, nombre de places passagers
 - Récapitulatif : nombre de présents, voitures, places dispo vs passagers à transporter
 - Partage du sondage par lien (à coller dans WhatsApp) — pas de compte, pas de serveur
