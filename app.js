@@ -245,11 +245,7 @@ function matchCard(m, past = false) {
   const walkers = accomp.filter((p) => carMode(p) === "no");
   const seats = cars.reduce((sum, p) => sum + (Number(p.seats) || 0), 0);
   const riders = walkers.reduce((sum, p) => sum + (Number(p.riders) || 0), 0) + walkers.length;
-  const badge = past
-    ? `<span class="badge past">terminé</span>`
-    : m.type === "home"
-      ? `<span class="badge home">domicile</span>`
-      : `<span class="badge away">extérieur</span>`;
+  const badge = past ? `<span class="badge past">terminé</span>` : "";
   return `<div class="card clickable" data-match="${m.id}">
     <p class="match-title">${esc(matchTitle(m))} ${badge}</p>
     <p class="match-meta">${esc(formatDate(m.date, m.time))} · ${cars.length} voiture${cars.length > 1 ? "s" : ""} · ${seats}/${riders} pl.</p>
@@ -267,11 +263,6 @@ function renderForm(match) {
         <div><label>Date</label><input id="f-date" type="date" value="${esc(m.date)}"></div>
         <div><label>Heure</label><input id="f-time" type="time" value="${esc(m.time)}"></div>
       </div>
-      <label>Domicile ou extérieur ?</label>
-      <select id="f-type">
-        <option value="away" ${m.type === "away" ? "selected" : ""}>Extérieur (déplacement)</option>
-        <option value="home" ${m.type === "home" ? "selected" : ""}>Domicile</option>
-      </select>
       <label>Lieu (optionnel)</label>
       <input id="f-location" value="${esc(m.location)}" placeholder="Ex : Gymnase Jean Moulin">
       <div class="section-actions">
@@ -289,7 +280,7 @@ function renderForm(match) {
       opponent,
       date,
       time: document.getElementById("f-time").value,
-      type: document.getElementById("f-type").value,
+      type: "away",
       location: document.getElementById("f-location").value.trim(),
       updatedAt: Date.now(),
     };
@@ -526,9 +517,7 @@ function renderDetail(matchId, editIndex) {
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
     <div class="card">
-      <p class="match-title">${esc(matchTitle(m))}
-        ${m.type === "home" ? '<span class="badge home">domicile</span>' : '<span class="badge away">extérieur</span>'}
-      </p>
+      <p class="match-title">${esc(matchTitle(m))}</p>
       <p class="match-meta">${esc(formatDate(m.date, m.time))}${m.location ? " · " + esc(m.location) : ""}</p>
     </div>
 
