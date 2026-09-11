@@ -92,12 +92,18 @@ function unescapeICS(v) {
 
 // Parse minimal d'un .ics : SUMMARY, DTSTART, LOCATION, UID par VEVENT.
 function parseICS(text) {
-  const unfolded = text.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "");
+  const unfolded = text.replace(/\r\n?/g, "\n").replace(/\n[ \t]/g, "");
   const events = [];
   let cur = null;
   for (const line of unfolded.split("\n")) {
     if (line.startsWith("BEGIN:VEVENT")) cur = {};
-    else if (line.startsWith("END:VEVENT")) { if (cur && cur.summary && cur.start) events.push(cur); cur = null; }
+    else if (line.startsWith("END:VEVENT")) {
+      if (cur && cur.start) {
+        if (!cur.summary) cur.summary = "Événement";
+        events.push(cur);
+      }
+      cur = null;
+    }
     else if (cur) {
       const idx = line.indexOf(":");
       if (idx < 0) continue;
@@ -113,25 +119,35 @@ function parseICS(text) {
   return events;
 }
 
+// Tolère le format iCal standard (20260927T150000Z) et les variantes
+// ISO avec séparateurs parfois générées côté serveur (2026-09-27T15:00:00).
+const ICS_DATE_RE = /^(\d{4})-?(\d{2})-?(\d{2})(?:[T ](\d{2}):?(\d{2})(?::?(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?/;
+
 function icsDate(v) {
-  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?/);
+  const m = v.match(ICS_DATE_RE);
   if (!m) return null;
   const pad = (n) => String(n).padStart(2, "0");
   if (!m[4]) return { date: `${m[1]}-${m[2]}-${m[3]}`, time: "" };
-  const d = m[7]
-    ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)))
-    : new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  const d = new Date(icsParsedEpoch(m));
   return {
     date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
     time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
   };
 }
 
-function icsEpoch(v) {
-  const m = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?/);
-  if (!m) return 0;
+function icsParsedEpoch(m) {
   const args = [+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)];
-  return m[7] ? Date.UTC(...args) : new Date(...args).getTime();
+  const tz = m[7];
+  if (!tz) return new Date(...args).getTime();
+  if (tz === "Z") return Date.UTC(...args);
+  const sign = tz[0] === "-" ? -1 : 1;
+  const [, oh, om] = tz.slice(1).replace(":", "").match(/(\d{2})(\d{2})/);
+  return Date.UTC(...args) - sign * (+oh * 60 + +om) * 60000;
+}
+
+function icsEpoch(v) {
+  const m = v.match(ICS_DATE_RE);
+  return m && m[4] ? icsParsedEpoch(m) : 0;
 }
 
 // Id stable dérivé de l'UID iCal : réimporter ne crée pas de doublon.
@@ -365,7 +381,17 @@ function renderImport() {
     events = parseICS(text);
     const results = document.getElementById("i-results");
     if (!events.length) {
-      results.innerHTML = `<p class="empty">Aucun événement trouvé dans ce fichier.</p>`;
+      const vevents = (text.match(/BEGIN:VEVENT/g) || []).length;
+      const diag = vevents
+        ? `Le calendrier contient ${vevents} événement${vevents > 1 ? "s" : ""}, mais leur format de date n'a pas été reconnu.`
+        : text.includes("BEGIN:VCALENDAR")
+          ? "Le calendrier reçu est vide (aucun événement)."
+          : "Le contenu reçu ne ressemble pas à un calendrier (.ics).";
+      results.innerHTML = `<p class="empty">Aucun événement importable.<br>${diag}</p>
+        <label>Début du contenu reçu (à transmettre pour diagnostic)</label>
+        <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+          padding: 10px; font-size: 0.75rem; overflow-x: auto; white-space: pre-wrap;
+          word-break: break-all;">${esc(text.slice(0, 400))}</pre>`;
       return;
     }
     const today = new Date().toISOString().slice(0, 10);
