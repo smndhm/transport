@@ -498,7 +498,7 @@ function renderDetail(matchId) {
       <div class="stat"><div class="num">${present.length}</div><div class="lbl">présents</div></div>
       <div class="stat"><div class="num">${drivers.length}</div><div class="lbl">voitures</div></div>
       ${m.type === "away"
-        ? `<div class="stat ${seatsOk ? "ok" : "ko"}"><div class="num">${seats}/${passengers}</div><div class="lbl">places / passagers</div></div>`
+        ? `<div class="stat ${seatsOk ? "ok" : "ko"}"><div class="num">${seats}/${passengers}</div><div class="lbl">places libres / à transporter</div></div>`
         : ""}
     </div>
 
@@ -518,7 +518,9 @@ function renderDetail(matchId) {
           <button id="c-no" class="${myResponse.car ? "" : "selected-no"}">Non</button>
         </div>
         <div id="seats-block" ${myResponse.car ? "" : "hidden"}>
-          <label>Places passagers (en plus de moi)</label>
+          <label>Places libres pour les autres joueurs</label>
+          <p class="match-meta" style="margin: 0 0 6px;">Sans compter le conducteur ni votre
+          enfant s'il joue. Ex : 5 sièges − vous − votre enfant = <strong>3 places libres</strong>.</p>
           <input id="r-seats" type="number" min="0" max="8" value="${myResponse.seats}">
         </div>
       </div>
@@ -532,7 +534,7 @@ function renderDetail(matchId) {
       ? `<div class="card"><ul class="player-list">${m.players
           .map(
             (p) => `<li><span>${esc(p.name)}</span><span class="player-status ${p.status}">
-              ${p.status === "present" ? "✔ présent" + (p.car ? ` · 🚗 ${Number(p.seats) || 0} pl.` : "") : "✘ absent"}
+              ${p.status === "present" ? "✔ présent" + (p.car ? ` · 🚗 ${Number(p.seats) || 0} pl. libres` : "") : "✘ absent"}
             </span></li>`
           )
           .join("")}</ul></div>`
