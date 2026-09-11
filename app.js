@@ -218,15 +218,33 @@ function renderList() {
     </div>`;
   }
 
+  // Hiérarchie : catégorie → matchs (→ point de rdv dans le détail).
+  const byCategory = (list) => {
+    const groups = new Map();
+    for (const m of list) {
+      const key = m.category || "";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(m);
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  };
+  const renderGroups = (list, past = false) => {
+    const groups = byCategory(list);
+    if (groups.length === 1 && !groups[0][0]) return list.map((m) => matchCard(m, past)).join("");
+    return groups
+      .map(([cat, ms]) => `<h3 class="cat-title">${esc(cat || "Sans catégorie")}</h3>` + ms.map((m) => matchCard(m, past)).join(""))
+      .join("");
+  };
+
   html += `<h2>À venir</h2>`;
   if (!upcoming.length) {
     html += `<p class="empty">Aucun match prévu.<br>Créez-en un ou ouvrez un lien partagé par l'équipe.</p>`;
   } else {
-    html += upcoming.map((m) => matchCard(m)).join("");
+    html += renderGroups(upcoming);
   }
 
   if (past.length) {
-    html += `<h2>Passés</h2>` + past.map((m) => matchCard(m, true)).join("");
+    html += `<h2>Passés</h2>` + renderGroups(past, true);
   }
 
   app.innerHTML = html;
@@ -253,10 +271,14 @@ function matchCard(m, past = false) {
 }
 
 function renderForm(match) {
-  const m = match || { opponent: "", date: "", time: "", location: "", type: "away" };
+  const m = match || { opponent: "", date: "", time: "", location: "", category: "", rdv: "", rdvTime: "", type: "away" };
+  const cats = [...new Set(state.matches.map((x) => x.category).filter(Boolean))];
   app.innerHTML = `
     <div class="card">
       <h2 style="margin-top:0">${match ? "Modifier le match" : "Nouveau match"}</h2>
+      <label>Catégorie</label>
+      <input id="f-category" value="${esc(m.category || "")}" placeholder="Ex : U13" list="f-cats">
+      <datalist id="f-cats">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
       <label>Adversaire</label>
       <input id="f-opponent" value="${esc(m.opponent)}" placeholder="Ex : FC Trifouillis">
       <div class="row">
@@ -265,6 +287,10 @@ function renderForm(match) {
       </div>
       <label>Lieu (optionnel)</label>
       <input id="f-location" value="${esc(m.location)}" placeholder="Ex : Gymnase Jean Moulin">
+      <div class="row">
+        <div><label>Point de rdv</label><input id="f-rdv" value="${esc(m.rdv || "")}" placeholder="Ex : parking du gymnase"></div>
+        <div><label>Heure de rdv</label><input id="f-rdvtime" type="time" value="${esc(m.rdvTime || "")}"></div>
+      </div>
       <div class="section-actions">
         <button class="btn-secondary" id="f-cancel">Annuler</button>
         <button class="btn-primary" id="f-save">Enregistrer</button>
@@ -282,6 +308,9 @@ function renderForm(match) {
       time: document.getElementById("f-time").value,
       type: "away",
       location: document.getElementById("f-location").value.trim(),
+      category: document.getElementById("f-category").value.trim(),
+      rdv: document.getElementById("f-rdv").value.trim(),
+      rdvTime: document.getElementById("f-rdvtime").value,
       updatedAt: Date.now(),
     };
     if (match) {
@@ -517,8 +546,11 @@ function renderDetail(matchId, editIndex) {
   app.innerHTML = `
     <button class="btn-link" id="back">← Tous les matchs</button>
     <div class="card">
-      <p class="match-title">${esc(matchTitle(m))}</p>
+      <p class="match-title">${esc(matchTitle(m))}${m.category ? ` <span class="badge home">${esc(m.category)}</span>` : ""}</p>
       <p class="match-meta">${esc(formatDate(m.date, m.time))}${m.location ? " · " + esc(m.location) : ""}</p>
+      ${m.rdv || m.rdvTime
+        ? `<p class="match-meta rdv">🅿️ Rdv${m.rdvTime ? " à " + esc(m.rdvTime.replace(":", "h")) : ""}${m.rdv ? " — " + esc(m.rdv) : ""}</p>`
+        : `<p class="match-meta">🅿️ Point de rdv à définir (« Modifier le match »)</p>`}
     </div>
 
     <div class="summary">
@@ -653,7 +685,10 @@ function renderDetail(matchId, editIndex) {
 
   document.getElementById("share").onclick = async () => {
     const url = shareUrl(m);
-    const text = `🚌 Sondage transport — ${matchTitle(m)} (${formatDate(m.date, m.time)})\nRéponds ici : ${url}`;
+    const rdvLine = m.rdv || m.rdvTime
+      ? `\n🅿️ Rdv${m.rdvTime ? " à " + m.rdvTime.replace(":", "h") : ""}${m.rdv ? " — " + m.rdv : ""}`
+      : "";
+    const text = `🚌 Sondage transport${m.category ? " " + m.category : ""} — ${matchTitle(m)} (${formatDate(m.date, m.time)})${rdvLine}\nRéponds ici : ${url}`;
     if (navigator.share) {
       try { await navigator.share({ text }); return; } catch (e) { /* annulé */ }
     }

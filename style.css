@@ -187,5 +187,14 @@ input, select {
 .toast.show { opacity: 1; }
 
 h2 { font-size: 1.15rem; margin: 20px 0 10px; }
+.cat-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 14px 0 8px;
+}
+.match-meta.rdv { color: var(--primary-dark); font-weight: 600; }
 .section-actions { display: flex; gap: 8px; margin: 12px 0; }
 .section-actions button { flex: 1; }

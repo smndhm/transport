@@ -6,7 +6,8 @@ Petite app pour organiser les déplacements aux matchs : qui vient, qui conduit,
 
 ## Fonctionnalités actuelles
 
-- Créer un match à l'extérieur (adversaire, date/heure, lieu) — l'app ne sert que pour les déplacements
+- Hiérarchie : catégorie (U11, U13…) → matchs → point de rdv. La liste des matchs est regroupée par catégorie ; chaque match affiche son point de rendez-vous (lieu + heure) en tête et dans le message de partage
+- Créer un match à l'extérieur (catégorie, adversaire, date/heure, lieu, point de rdv) — l'app ne sert que pour les déplacements
 - Importer les matchs depuis Kalisport : lien d'export du calendrier (webcal:// ou https://), fichier .ics ou copier-coller, avec détection des doublons au ré-import
 - Si le lien du calendrier est accepté par le serveur (CORS), il est mémorisé et un bouton « Actualiser » synchronise les matchs en un clic
 - Une réponse par accompagnateur, trois champs : nom, je conduis (oui/non), puis nombre de places (sans compter son enfant joueur) ou nombre de joueurs déposés au point de rendez-vous
