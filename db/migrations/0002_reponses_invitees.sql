@@ -22,11 +22,21 @@ alter table public.responses
   alter column created_by set default auth.uid(),
   alter column created_by set not null;
 
-alter table public.responses
-  add constraint responses_identity check (
-    (profile_id is not null and guest_name is null)
-    or (profile_id is null and guest_name is not null and length(btrim(guest_name)) between 1 and 60)
-  );
+-- « add constraint » n'a pas de variante « if not exists » : on vérifie
+-- avant, pour que le fichier puisse être rejoué sans erreur.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'responses_identity' and conrelid = 'public.responses'::regclass
+  ) then
+    alter table public.responses
+      add constraint responses_identity check (
+        (profile_id is not null and guest_name is null)
+        or (profile_id is null and guest_name is not null and length(btrim(guest_name)) between 1 and 60)
+      );
+  end if;
+end $$;
 
 -- unique (match_id, profile_id) tient toujours : PostgreSQL considère les
 -- NULL comme distincts, donc plusieurs invités par match sont permis,
@@ -51,3 +61,15 @@ create policy responses_own on public.responses
   );
 
 commit;
+
+-- Vérification : doit renvoyer les deux colonnes, la contrainte et la règle.
+select 'colonne ' || column_name as objet
+from information_schema.columns
+where table_name = 'responses' and column_name in ('guest_name', 'created_by')
+union all
+select 'contrainte ' || conname from pg_constraint
+where conname = 'responses_identity' and conrelid = 'public.responses'::regclass
+union all
+select 'règle ' || policyname from pg_policies
+where tablename = 'responses' and policyname = 'responses_own'
+order by objet;
