@@ -401,9 +401,18 @@ async function withBusy(fn, errorMsg) {
     await fn();
   } catch (e) {
     console.error(e);
-    const detail = e && e.message ? " — " + e.message : "";
-    toast((errorMsg || "Erreur") + detail);
+    toast((errorMsg || "Erreur") + describeError(e));
   }
+}
+
+// Les erreurs PostgREST portent un code et parfois un indice : les
+// afficher évite d'avoir à ouvrir la console pour comprendre.
+function describeError(e) {
+  if (!e) return "";
+  const parts = [e.message, e.code ? "[" + e.code + "]" : "", e.hint || e.details || ""]
+    .map((x) => (x || "").toString().trim())
+    .filter(Boolean);
+  return parts.length ? " — " + parts.join(" ") : "";
 }
 
 let toastTimer;

@@ -46,6 +46,7 @@ const DB = (() => {
         const { data, error } = await sb().auth.signInAnonymously();
         if (error) throw error;
         userId = data.user.id;
+        await ensureProfile();
         return userId;
       })();
     }
@@ -54,6 +55,17 @@ const DB = (() => {
 
   function me() {
     return userId;
+  }
+
+  // Le profil est la ligne de référence de cet appareil : team_members et
+  // responses y pointent. On la crée dès la session, sans attendre qu'une
+  // autre opération en ait besoin.
+  async function ensureProfile(name) {
+    if (!userId) return;
+    const { error } = await sb()
+      .from("profiles")
+      .upsert({ id: userId, display_name: name || "Parent" }, { onConflict: "id", ignoreDuplicates: true });
+    if (error) console.warn("profil non créé :", error.message);
   }
 
   // ---------- Traduction base → forme utilisée par l'app ----------
@@ -107,11 +119,17 @@ const DB = (() => {
 
   async function createTeam(name, season, displayName) {
     await ready();
-    const { data, error } = await sb().rpc("create_team", {
+    await ensureProfile(displayName);
+    let { data, error } = await sb().rpc("create_team", {
       p_name: name,
       p_season: season || null,
       p_display_name: displayName || null,
     });
+    // Base pas encore migrée : l'ancienne fonction ne prend que deux
+    // arguments. Le profil venant d'être créé, elle fonctionne aussi.
+    if (error && error.code === "PGRST202") {
+      ({ data, error } = await sb().rpc("create_team", { p_name: name, p_season: season || null }));
+    }
     if (error) throw error;
     return data;
   }
