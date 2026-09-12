@@ -26,8 +26,10 @@ joueurs attendus à chaque point de rdv.
    Anonymous sign-ins*. C'est ce qui donne à chaque appareil un
    `auth.uid()` stable, sans mot de passe à retenir.
 3. Coller `schema.sql` dans le *SQL Editor* et l'exécuter.
-4. Activer le temps réel sur `responses`, `matches` et `meeting_points`
-   (*Database → Replication*).
+4. Activer le temps réel en exécutant `realtime.sql` dans le *SQL
+   Editor*. L'emplacement de ce réglage dans l'interface change selon
+   les versions du tableau de bord ; le script, lui, est stable et
+   rejouable.
 5. Récupérer l'URL du projet et la clé publique `anon` pour l'app.
 
 ## Vérifier le schéma avant de l'appliquer
