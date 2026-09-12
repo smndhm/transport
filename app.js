@@ -461,18 +461,10 @@ function renderList() {
   const upcoming = matches.filter((m) => !isPast(m));
   const past = matches.filter(isPast);
 
-  let html = teamHeader();
-  if (isAdmin) {
-    html += `<div class="section-actions">
-      <button class="btn-primary" id="new-match">+ Nouveau match</button>
-      <button class="btn-secondary" id="import-ics">📥 Import Kalisport</button>
-    </div>`;
-    if (savedIcsUrl) {
-      html += `<div class="section-actions">
-        <button class="btn-secondary" id="refresh-ics">🔄 Actualiser depuis Kalisport</button>
-      </div>`;
-    }
-  }
+  // En mode base, les actions de création sont dans la carte de
+  // l'équipe : elles portent sur cette catégorie et pas ailleurs.
+  let html = teamHeader(isAdmin ? adminActions() : "");
+  if (Store.mode !== "db" && isAdmin) html += adminActions();
 
   // Hiérarchie : catégorie → matchs (→ point de rdv dans le détail).
   const byCategory = (list) => {
@@ -485,6 +477,9 @@ function renderList() {
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   };
   const renderGroups = (list, past = false) => {
+    // En mode base, une seule catégorie est affichée à la fois : son nom
+    // est déjà en tête d'écran, inutile de le répéter.
+    if (Store.mode === "db") return list.map((m) => matchCard(m, past)).join("");
     const groups = byCategory(list);
     if (groups.length === 1 && !groups[0][0]) return list.map((m) => matchCard(m, past)).join("");
     return groups
@@ -518,9 +513,19 @@ function renderList() {
   });
 }
 
+function adminActions() {
+  return `<div class="section-actions">
+      <button class="btn-primary" id="new-match">+ Nouveau match</button>
+      <button class="btn-secondary" id="import-ics">📥 Import Kalisport</button>
+    </div>` +
+    (savedIcsUrl ? `<div class="section-actions">
+      <button class="btn-secondary" id="refresh-ics">🔄 Actualiser depuis Kalisport</button>
+    </div>` : "");
+}
+
 // En mode base : l'équipe courante, le sélecteur s'il y en a plusieurs,
-// et le lien d'invitation pour l'organisateur.
-function teamHeader() {
+// les actions de création, et le lien d'invitation pour l'organisateur.
+function teamHeader(actions) {
   if (Store.mode !== "db") return "";
   if (!Store.team) {
     return legacyAdmin
@@ -545,8 +550,11 @@ function teamHeader() {
     ${others ? `<label>Équipe</label><select id="t-switch">${Store.teams
       .map((t) => `<option value="${esc(t.id)}" ${t.id === Store.team.id ? "selected" : ""}>${esc(t.name)}</option>`)
       .join("")}</select>` : ""}
+    ${actions || ""}
     <div class="section-actions">
       ${isAdmin ? `<button class="btn-secondary" id="t-invite">🔗 Inviter les parents</button>` : ""}
+    </div>
+    <div class="section-actions">
       ${legacyAdmin ? `<button class="btn-link" id="t-new">+ Nouvelle équipe</button>` : ""}
       ${legacyAdmin ? `<button class="btn-link" id="t-diag">🩺 Diagnostic</button>` : ""}
     </div>
@@ -668,10 +676,12 @@ function renderForm(match) {
   if (!rdvs.length) rdvs = [{ place: "", time: "", toTake: "" }];
   app.innerHTML = `
     <div class="card">
-      <h2 style="margin-top:0">${match ? "Modifier le match" : "Nouveau match"}</h2>
+      <h2 style="margin-top:0">${match ? "Modifier le match" : "Nouveau match"}${
+        Store.mode === "db" && Store.team ? ` <span class="badge home">${esc(Store.team.name)}</span>` : ""}</h2>
+      ${Store.mode === "db" ? "" : `
       <label>Catégorie</label>
       <input id="f-category" value="${esc(m.category || "")}" placeholder="Ex : U13" list="f-cats">
-      <datalist id="f-cats">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
+      <datalist id="f-cats">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist>`}
       <label>Adversaire</label>
       <input id="f-opponent" value="${esc(m.opponent)}" placeholder="Ex : FC Trifouillis">
       <div class="row">
@@ -727,7 +737,9 @@ function renderForm(match) {
       time: document.getElementById("f-time").value,
       type: "away",
       location: document.getElementById("f-location").value.trim(),
-      category: document.getElementById("f-category").value.trim(),
+      category: Store.mode === "db"
+        ? (Store.team ? Store.team.name : "")
+        : document.getElementById("f-category").value.trim(),
       arrivalTime: document.getElementById("f-arrival").value,
       rdvs: rdvs
         .map((r) => ({ place: (r.place || "").trim(), time: r.time || "", toTake: Math.max(0, Number(r.toTake) || 0) }))
