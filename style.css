@@ -224,3 +224,16 @@ h2 { font-size: 1.15rem; margin: 20px 0 10px; }
   padding: 10px; font-size: 0.78rem; margin: 0; white-space: pre-wrap;
   word-break: break-word; user-select: all;
 }
+
+.move-btns { display: inline-flex; gap: 2px; margin-right: 6px; vertical-align: middle; }
+.move-btns .move {
+  padding: 0 6px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--primary);
+}
+.move-btns .move:disabled { opacity: 0.3; cursor: default; }
+.seat-unused { color: var(--muted); text-decoration: line-through; }

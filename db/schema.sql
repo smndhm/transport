@@ -141,6 +141,9 @@ create table public.responses (
   drives            boolean not null,
   seats             smallint not null default 0 check (seats between 0 and 8),
   stays_if_unused   boolean not null default false,
+  -- Ordre de départ décidé par l'organisateur : les places sont affectées
+  -- dans cet ordre jusqu'à couvrir le besoin.
+  position          smallint not null default 0,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 
@@ -169,6 +172,7 @@ create index responses_match_idx on public.responses (match_id);
 create index responses_point_idx on public.responses (meeting_point_id);
 create index responses_profile_idx on public.responses (profile_id);
 create index responses_created_by_idx on public.responses (created_by);
+create index responses_order_idx on public.responses (meeting_point_id, position, created_at);
 
 create trigger profiles_touch       before update on public.profiles       for each row execute function public.touch_updated_at();
 create trigger teams_touch          before update on public.teams          for each row execute function public.touch_updated_at();

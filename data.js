@@ -92,8 +92,12 @@ const DB = (() => {
         time: hhmm(p.departure_time),
         toTake: p.players_expected,
       })),
-      players: (row.responses || []).map((r) => ({
+      players: (row.responses || [])
+        // L'ordre décidé par l'organisateur ; à égalité, l'ancienneté.
+        .sort((a, b) => (a.position - b.position) || String(a.created_at).localeCompare(String(b.created_at)))
+        .map((r) => ({
         id: r.id,
+        position: r.position,
         profileId: r.profile_id,
         isGuest: !r.profile_id,
         mine: r.profile_id ? r.profile_id === userId : r.created_by === userId,
@@ -164,7 +168,7 @@ const DB = (() => {
         external_source, external_uid,
         meeting_points ( id, name, departure_time, players_expected, position ),
         responses ( id, profile_id, guest_name, created_by, meeting_point_id,
-                    drives, seats, stays_if_unused,
+                    drives, seats, stays_if_unused, position, created_at,
                     profile:profiles!responses_profile_id_fkey ( display_name ) )
       `)
       .eq("team_id", teamId)
@@ -285,6 +289,15 @@ const DB = (() => {
     if (error) throw error;
   }
 
+  // Renumérote les réponses d'un point de rdv dans l'ordre fourni.
+  async function setResponsePositions(ids) {
+    await ready();
+    for (let i = 0; i < ids.length; i++) {
+      const { error } = await sb().from("responses").update({ position: i + 1 }).eq("id", ids[i]);
+      if (error) throw error;
+    }
+  }
+
   async function deleteResponse(id) {
     await ready();
     const { error } = await sb().from("responses").delete().eq("id", id);
@@ -399,7 +412,7 @@ const DB = (() => {
   return {
     enabled, ready, me, diagnose, testCreateTeam, fmt,
     myTeams, createTeam, joinTeam, setDisplayName,
-    loadTeam, saveMatch, deleteMatch, importMatches, saveResponse, deleteResponse,
+    loadTeam, saveMatch, deleteMatch, importMatches, saveResponse, deleteResponse, setResponsePositions,
     watch, cacheRead, cacheWrite,
   };
 })();

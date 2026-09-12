@@ -190,6 +190,17 @@ const Store = {
     saveState();
   },
 
+  // Renumérote un groupe de réponses dans l'ordre fourni.
+  async setOrder(m, entries) {
+    entries.forEach((e, i) => { e.position = i + 1; });
+    if (this.mode === "db") {
+      await DB.setResponsePositions(entries.map((e) => e.id));
+      await this.refreshAfterWrite();
+      return;
+    }
+    saveState();
+  },
+
   async deleteResponse(m, entry) {
     if (this.mode === "db") {
       await DB.deleteResponse(entry.id);
@@ -406,15 +417,23 @@ function spareHint(g) {
 
 // Une ligne de la liste des réponses. `spare` : places en trop au point
 // de départ — l'intention du conducteur ne s'affiche que dans ce cas.
-function responseLine(p, idx, spare) {
+function responseLine(p, idx, spare, used, move) {
   const seats = Number(p.seats) || 0;
   const tag = carMode(p) !== "no" && spare
     ? p.ifUnused === "stay" ? ` <span class="tag-stay">peut rester</span>` : ` <span class="tag-come">vient quand même</span>`
     : "";
-  const detail = carMode(p) !== "no"
-    ? `🚗 ${seats} place${seats > 1 ? "s" : ""}${tag}`
-    : "🙋 sans voiture";
-  return `<li data-edit="${idx}" style="cursor:pointer"><span>${esc(p.name)}</span>` +
+  let detail;
+  if (carMode(p) === "no") {
+    detail = "🙋 sans voiture";
+  } else if (used === 0) {
+    // Cette voiture dépasse le besoin : elle n'emmène personne.
+    detail = `<span class="seat-unused">🚗 non nécessaire</span> <span class="match-meta">(${seats} pl.)</span>${tag}`;
+  } else if (used != null && used < seats) {
+    detail = `🚗 ${used} place${used > 1 ? "s" : ""} <span class="match-meta">sur ${seats}</span>${tag}`;
+  } else {
+    detail = `🚗 ${seats} place${seats > 1 ? "s" : ""}${tag}`;
+  }
+  return `<li data-edit="${idx}" style="cursor:pointer"><span>${move || ""}${esc(p.name)}</span>` +
     `<span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
 }
 
@@ -972,7 +991,9 @@ function renderDetail(matchId, editIndex) {
 
   // Les réponses des anciens formats restent lisibles : conduire était un
   // booléen ou « si besoin », et « ne vient pas » n'existe plus.
-  const accomp = m.players.filter((p) => p.status !== "absent");
+  const accomp = m.players
+    .filter((p) => p.status !== "absent")
+    .sort((x, y) => (Number(x.position) || 0) - (Number(y.position) || 0));
   // Ma réponse : celle rattachée à mon compte en base, à mon nom en local.
   const mineIdx = Store.mode === "db"
     ? accomp.findIndex((p) => p.profileId && p.profileId === DB.me())
@@ -1021,6 +1042,16 @@ function renderDetail(matchId, editIndex) {
     const atWalkers = at.filter((p) => carMode(p) === "no").length;
     const atRiders = Number(r.toTake) || 0;
     const atToTake = atRiders + atWalkers;
+
+    // Les places sont affectées dans l'ordre affiché, jusqu'à couvrir le
+    // besoin : au-delà, une voiture n'emmène personne.
+    let remaining = atToTake;
+    for (const entry of members) {
+      if (carMode(entry.p) === "no") { entry.used = null; continue; }
+      entry.used = Math.min(Number(entry.p.seats) || 0, remaining);
+      remaining -= entry.used;
+    }
+
     return { r, i, members, drivers: atDrivers, cars: at.length - atWalkers, seats: atSeats, riders: atRiders,
       toTake: atToTake, ok: atSeats >= atRiders, spare: Math.max(0, atSeats - atToTake) };
   });
@@ -1049,7 +1080,12 @@ function renderDetail(matchId, editIndex) {
             · <span class="${g.ok ? "seats-ok" : "seats-ko"}">${g.seats}/${g.toTake} place${g.toTake > 1 ? "s" : ""}</span></p>
           ${g.spare ? `<p class="match-meta">➕ ${g.spare} place${g.spare > 1 ? "s" : ""} en trop — ${spareHint(g)}</p>` : ""}
           ${g.members.length
-            ? `<ul class="player-list" style="margin-top:8px">${g.members.map(({ p, idx }) => responseLine(p, idx, g.spare)).join("")}</ul>`
+            ? `<ul class="player-list" style="margin-top:8px">${g.members
+                .map((entry, j) => responseLine(entry.p, entry.idx, g.spare, entry.used,
+                  isAdmin && g.members.length > 1
+                    ? `<span class="move-btns"><button class="move" data-move="${g.i}:${j}:-1"${j === 0 ? " disabled" : ""}>↑</button><button class="move" data-move="${g.i}:${j}:1"${j === g.members.length - 1 ? " disabled" : ""}>↓</button></span>`
+                    : ""))
+                .join("")}</ul>`
             : `<p class="match-meta" style="margin-top:8px">Personne n'a encore répondu pour ce point.</p>`}
         </div>`).join("")
       : isAdmin
@@ -1092,7 +1128,7 @@ function renderDetail(matchId, editIndex) {
         <button class="btn-danger" id="r-delete">Supprimer cette réponse</button>
       </div>` : ""}
     </div>` : ""}
-    ${adding ? "" : `<div class="section-actions">
+    ${showForm ? "" : `<div class="section-actions">
       <button class="btn-secondary" id="r-add">➕ Ajouter une voiture</button>
     </div>`}
 
@@ -1101,7 +1137,7 @@ function renderDetail(matchId, editIndex) {
       : accomp.length
         ? `<h2>Réponses (${accomp.length})</h2>
            <div class="card"><ul class="player-list">${accomp
-             .map((p, i) => responseLine(p, i, 0)).join("")}</ul></div>
+             .map((p, i) => responseLine(p, i, 0, null, "")).join("")}</ul></div>
            <p class="match-meta">Touchez une réponse pour la corriger.</p>`
         : `<p class="empty">Personne n'a encore répondu.</p>`}
 
@@ -1130,6 +1166,21 @@ function renderDetail(matchId, editIndex) {
 
   app.querySelectorAll("[data-edit]").forEach((el) => {
     el.onclick = () => renderDetail(matchId, Number(el.dataset.edit));
+  });
+
+  app.querySelectorAll("[data-move]").forEach((el) => {
+    el.onclick = (ev) => {
+      ev.stopPropagation(); // ne pas ouvrir l'édition de la ligne
+      const [gi, j, dir] = el.dataset.move.split(":").map(Number);
+      const group = perRdv[gi].members.map((x) => x.p);
+      const target = j + dir;
+      if (target < 0 || target >= group.length) return;
+      [group[j], group[target]] = [group[target], group[j]];
+      withBusy(async () => {
+        await Store.setOrder(m, group);
+        rerender();
+      }, "Réordonnancement impossible");
+    };
   });
   const addBtn = document.getElementById("r-add");
   if (addBtn) addBtn.onclick = () => renderDetail(matchId, "new");
