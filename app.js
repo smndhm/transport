@@ -1064,10 +1064,7 @@ function renderDetail(matchId, editIndex) {
       ${editing ? `<div class="section-actions">
         <button class="btn-danger" id="r-delete">Supprimer cette réponse</button>
       </div>` : ""}
-    </div>` : `
-    <div class="section-actions">
-      <button class="btn-secondary" id="r-edit">✏️ Modifier ma réponse</button>
-    </div>`}
+    </div>` : ""}
     ${adding ? "" : `<div class="section-actions">
       <button class="btn-secondary" id="r-add">➕ Ajouter une voiture</button>
     </div>`}
@@ -1107,8 +1104,6 @@ function renderDetail(matchId, editIndex) {
   app.querySelectorAll("[data-edit]").forEach((el) => {
     el.onclick = () => renderDetail(matchId, Number(el.dataset.edit));
   });
-  const editBtn = document.getElementById("r-edit");
-  if (editBtn) editBtn.onclick = () => renderDetail(matchId, mineIdx);
   const addBtn = document.getElementById("r-add");
   if (addBtn) addBtn.onclick = () => renderDetail(matchId, "new");
   const delBtn = document.getElementById("r-delete");
