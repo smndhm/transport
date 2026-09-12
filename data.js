@@ -97,7 +97,7 @@ const DB = (() => {
         profileId: r.profile_id,
         isGuest: !r.profile_id,
         mine: r.profile_id ? r.profile_id === userId : r.created_by === userId,
-        name: r.profiles ? r.profiles.display_name : (r.guest_name || "?"),
+        name: r.profile ? r.profile.display_name : (r.guest_name || "?"),
         car: r.drives ? "yes" : "no",
         seats: r.seats,
         ifUnused: r.stays_if_unused ? "stay" : "come",
@@ -165,7 +165,7 @@ const DB = (() => {
         meeting_points ( id, name, departure_time, players_expected, position ),
         responses ( id, profile_id, guest_name, created_by, meeting_point_id,
                     drives, seats, stays_if_unused,
-                    profiles ( display_name ) )
+                    profile:profiles!responses_profile_id_fkey ( display_name ) )
       `)
       .eq("team_id", teamId)
       .order("match_date");
