@@ -27,7 +27,7 @@ try { myName = localStorage.getItem(STORAGE_KEY + ":name") || ""; } catch (e) {}
 // Mode organisateur : activé par ?admin dans l'URL puis mémorisé sur
 // l'appareil. ?admin=0 le désactive (pour revoir l'app en mode parent).
 // Ce n'est pas une sécurité, juste un paramètre non communiqué.
-const isAdmin = (() => {
+const legacyAdmin = (() => {
   const p = new URLSearchParams(location.search).get("admin");
   const off = p === "0" || p === "off";
   try {
@@ -38,9 +38,153 @@ const isAdmin = (() => {
   return !off;
 })();
 
+// En mode base, le droit d'organisateur vient du rôle dans l'équipe ;
+// en mode local, du paramètre ?admin.
+let isAdmin = legacyAdmin;
+
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
+
+// ---------- Stockage : local (POC) ou base (Supabase) ----------
+//
+// Les écrans lisent toujours state.matches ; seule cette couche change
+// selon le mode. Si la base est injoignable, on retombe sur le local
+// plutôt que d'afficher une page morte.
+
+const Store = {
+  mode: "local",
+  teams: [],
+  team: null,
+  unwatch: null,
+
+  get token() {
+    return this.team ? this.team.join_token : null;
+  },
+
+  rememberTeam(id) {
+    try { localStorage.setItem(STORAGE_KEY + ":team", id || ""); } catch (e) {}
+  },
+  lastTeam() {
+    try { return localStorage.getItem(STORAGE_KEY + ":team") || null; } catch (e) { return null; }
+  },
+
+  async boot() {
+    if (!DB.enabled()) return;
+    await DB.ready();
+    this.mode = "db";
+    await this.loadTeams();
+  },
+
+  async loadTeams() {
+    this.teams = await DB.myTeams();
+    const wanted = this.lastTeam();
+    this.team = this.teams.find((t) => t.id === wanted) || this.teams[0] || null;
+    if (this.team) this.rememberTeam(this.team.id);
+    isAdmin = this.team ? this.team.role === "organizer" : false;
+  },
+
+  async selectTeam(id) {
+    this.team = this.teams.find((t) => t.id === id) || null;
+    isAdmin = this.team ? this.team.role === "organizer" : false;
+    this.rememberTeam(this.team ? this.team.id : null);
+    await this.reload();
+  },
+
+  // Recharge les matchs de l'équipe courante. Le cache local évite un
+  // écran vide quand le réseau est mauvais au bord d'un terrain.
+  async reload() {
+    if (this.mode !== "db") return;
+    if (!this.team) { state.matches = []; return; }
+    try {
+      state.matches = await DB.loadTeam(this.team.id, this.team.name);
+      DB.cacheWrite(this.team.id, state.matches);
+    } catch (e) {
+      const cached = DB.cacheRead(this.team.id);
+      state.matches = cached || [];
+      toast(cached ? "Hors ligne — dernières données connues" : "Impossible de joindre la base");
+    }
+  },
+
+  // Réagit aux changements des autres téléphones.
+  watch(onChange) {
+    if (this.mode !== "db" || !this.team) return;
+    if (this.unwatch) this.unwatch();
+    this.unwatch = DB.watch(this.team.id, onChange);
+  },
+
+  async saveMatch(match, data) {
+    if (this.mode === "db") {
+      const id = await DB.saveMatch(this.team.id, { ...(match || {}), ...data });
+      await this.reload();
+      return id;
+    }
+    if (match) {
+      Object.assign(match, data);
+      saveState();
+      return match.id;
+    }
+    const created = { id: uid(), players: [], ...data };
+    state.matches.push(created);
+    saveState();
+    return created.id;
+  },
+
+  async deleteMatch(m) {
+    if (this.mode === "db") {
+      await DB.deleteMatch(m.dbId);
+      await this.reload();
+      return;
+    }
+    state.matches = state.matches.filter((x) => x.id !== m.id);
+    saveState();
+  },
+
+  async saveResponse(m, answer, pointId, editing) {
+    if (this.mode === "db") {
+      await DB.saveResponse(m.dbId, pointId, answer, editing ? editing.id : null);
+      await this.reload();
+      return;
+    }
+    // Mode local : la réponse est identifiée par le nom saisi.
+    const entry = {
+      name: answer.name,
+      car: answer.car,
+      seats: answer.car === "yes" ? Number(answer.seats) || 0 : 0,
+      ifUnused: answer.car === "yes" ? answer.ifUnused || "come" : "",
+      rdv: answer.rdv,
+      updatedAt: Date.now(),
+    };
+    if (editing) {
+      const target = m.players.indexOf(editing);
+      if (target >= 0) m.players[target] = entry;
+    } else {
+      const idx = m.players.findIndex((x) => x.name.trim().toLowerCase() === entry.name.toLowerCase());
+      if (idx >= 0) m.players[idx] = entry;
+      else m.players.push(entry);
+    }
+    saveState();
+  },
+
+  async importEvents(events) {
+    if (this.mode === "db") {
+      const count = await DB.importMatches(this.team.id, events);
+      await this.reload();
+      return count;
+    }
+    return mergeEvents(events);
+  },
+
+  // Le lien partagé invite dans l'équipe ; le match n'est qu'un point
+  // d'arrivée. En mode local, on continue d'encoder le match entier.
+  shareUrl(m) {
+    const base = location.origin + location.pathname;
+    if (this.mode === "db" && this.token) {
+      return base + "#t=" + encodeURIComponent(this.token) + (m ? "&m=" + m.id : "");
+    }
+    return shareUrl(m);
+  },
+};
 
 // ---------- Partage par lien ----------
 
@@ -250,6 +394,18 @@ function isPast(match) {
   return d < new Date();
 }
 
+// Exécute une action distante en signalant l'échec plutôt qu'en le
+// laissant passer silencieusement.
+async function withBusy(fn, errorMsg) {
+  try {
+    await fn();
+  } catch (e) {
+    console.error(e);
+    const detail = e && e.message ? " — " + e.message : "";
+    toast((errorMsg || "Erreur") + detail);
+  }
+}
+
 let toastTimer;
 function toast(msg) {
   let el = document.querySelector(".toast");
@@ -267,11 +423,12 @@ function toast(msg) {
 // ---------- Vues ----------
 
 function renderList() {
+  currentMatchId = null;
   const matches = [...state.matches].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const upcoming = matches.filter((m) => !isPast(m));
   const past = matches.filter(isPast);
 
-  let html = "";
+  let html = teamHeader();
   if (isAdmin) {
     html += `<div class="section-actions">
       <button class="btn-primary" id="new-match">+ Nouveau match</button>
@@ -316,6 +473,7 @@ function renderList() {
   }
 
   app.innerHTML = html;
+  bindTeamHeader();
   if (isAdmin) {
     document.getElementById("new-match").onclick = () => renderForm();
     document.getElementById("import-ics").onclick = () => renderImport();
@@ -325,6 +483,74 @@ function renderList() {
   app.querySelectorAll("[data-match]").forEach((el) => {
     el.onclick = () => renderDetail(el.dataset.match);
   });
+}
+
+// En mode base : l'équipe courante, le sélecteur s'il y en a plusieurs,
+// et le lien d'invitation pour l'organisateur.
+function teamHeader() {
+  if (Store.mode !== "db") return "";
+  if (!Store.team) {
+    return legacyAdmin
+      ? `<div class="card">
+           <h2 style="margin-top:0">Première équipe</h2>
+           <p class="match-meta">Créez une catégorie (U11, U13…) puis partagez son lien aux parents.</p>
+           <label>Nom de la catégorie</label>
+           <input id="t-name" placeholder="Ex : U13">
+           <div class="section-actions"><button class="btn-primary" id="t-create">Créer l'équipe</button></div>
+         </div>`
+      : `<p class="empty">Aucune équipe.<br>Ouvrez le lien d'invitation envoyé par l'organisateur.</p>`;
+  }
+  const others = Store.teams.length > 1;
+  return `<div class="card">
+    <p class="match-title" style="margin:0">${esc(Store.team.name)}
+      ${isAdmin ? '<span class="badge home">organisateur</span>' : ""}</p>
+    ${others ? `<label>Équipe</label><select id="t-switch">${Store.teams
+      .map((t) => `<option value="${esc(t.id)}" ${t.id === Store.team.id ? "selected" : ""}>${esc(t.name)}</option>`)
+      .join("")}</select>` : ""}
+    <div class="section-actions">
+      ${isAdmin ? `<button class="btn-secondary" id="t-invite">🔗 Inviter les parents</button>` : ""}
+      ${legacyAdmin ? `<button class="btn-link" id="t-new">+ Nouvelle équipe</button>` : ""}
+    </div>
+  </div>`;
+}
+
+function bindTeamHeader() {
+  const create = document.getElementById("t-create");
+  if (create) {
+    create.onclick = () => {
+      const name = document.getElementById("t-name").value.trim();
+      if (!name) return toast("Donnez un nom à l'équipe");
+      withBusy(async () => {
+        await DB.createTeam(name);
+        await Store.loadTeams();
+        await Store.reload();
+        renderList();
+      }, "Création impossible");
+    };
+  }
+  const sw = document.getElementById("t-switch");
+  if (sw) sw.onchange = () => withBusy(async () => { await Store.selectTeam(sw.value); renderList(); }, "Changement impossible");
+
+  const nw = document.getElementById("t-new");
+  if (nw) nw.onclick = () => {
+    const name = prompt("Nom de la nouvelle catégorie (ex : U15) :");
+    if (!name || !name.trim()) return;
+    withBusy(async () => {
+      await DB.createTeam(name.trim());
+      await Store.loadTeams();
+      await Store.reload();
+      renderList();
+    }, "Création impossible");
+  };
+
+  const inv = document.getElementById("t-invite");
+  if (inv) inv.onclick = async () => {
+    const url = Store.shareUrl(null);
+    const text = `🚌 Transport ${Store.team.name} — inscris-toi une fois, tu verras tous les déplacements :\n${url}`;
+    if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { /* annulé */ } }
+    try { await navigator.clipboard.writeText(text); toast("Lien d'invitation copié 📋"); }
+    catch (e) { prompt("Copiez ce lien :", url); }
+  };
 }
 
 function matchCard(m, past = false) {
@@ -415,16 +641,10 @@ function renderForm(match) {
         .filter((r) => r.place || r.time || r.toTake),
       updatedAt: Date.now(),
     };
-    if (match) {
-      Object.assign(match, data);
-      saveState();
-      renderDetail(match.id);
-    } else {
-      const created = { id: uid(), players: [], ...data };
-      state.matches.push(created);
-      saveState();
-      renderDetail(created.id);
-    }
+    withBusy(async () => {
+      const id = await Store.saveMatch(match, data);
+      renderDetail(id);
+    }, "Enregistrement impossible");
   };
 }
 
@@ -543,25 +763,12 @@ function renderImport() {
     document.getElementById("i-import").onclick = () => {
       const checked = [...results.querySelectorAll("input[data-ev]:checked")];
       if (!checked.length) return toast("Rien de sélectionné");
-      for (const box of checked) {
-        const ev = events[Number(box.dataset.ev)];
-        mergeMatch({
-          id: icsId(ev),
-          opponent: ev.summary,
-          date: ev.start.date,
-          time: ev.start.time,
-          type: "away",
-          location: ev.location || "",
-          imported: true,
-          players: [],
-          // L'horodatage Kalisport permet au ré-import de propager un changement
-          // d'horaire, sans écraser une modification manuelle plus récente.
-          updatedAt: ev.modified || 0,
-        });
-      }
-      saveState();
-      toast(`${checked.length} match${checked.length > 1 ? "s" : ""} importé${checked.length > 1 ? "s" : ""} ✔`);
-      renderList();
+      const picked = checked.map((box) => events[Number(box.dataset.ev)]);
+      withBusy(async () => {
+        const n = await Store.importEvents(picked);
+        toast(`${n} match${n > 1 ? "s" : ""} importé${n > 1 ? "s" : ""} ✔`);
+        renderList();
+      }, "Import impossible");
     };
   };
 
@@ -619,6 +826,7 @@ function saveCarPref(pref) {
 function renderDetail(matchId, editIndex) {
   const m = state.matches.find((x) => x.id === matchId);
   if (!m) return renderList();
+  currentMatchId = matchId;
 
   // Les réponses des anciens formats restent lisibles : conduire était un
   // booléen ou « si besoin », et « ne vient pas » n'existe plus.
@@ -753,11 +961,11 @@ function renderDetail(matchId, editIndex) {
   if (isAdmin) {
     document.getElementById("edit").onclick = () => renderForm(m);
     document.getElementById("delete").onclick = () => {
-      if (confirm("Supprimer ce match ?")) {
-        state.matches = state.matches.filter((x) => x.id !== m.id);
-        saveState();
+      if (!confirm("Supprimer ce match ?")) return;
+      withBusy(async () => {
+        await Store.deleteMatch(m);
         renderList();
-      }
+      }, "Suppression impossible");
     };
   }
 
@@ -800,34 +1008,32 @@ function renderDetail(matchId, editIndex) {
       const name = document.getElementById("r-name").value.trim();
       if (!name) return toast("Indiquez votre nom");
       if (!myResponse.car) return toast("Je conduis : oui ou non ?");
-      const entry = {
+      const rdvIdx = rdvIndexOf(myResponse, Math.max(1, rdvs.length));
+      const answer = {
         name,
         car: myResponse.car,
-        seats: myResponse.car === "yes" ? Number(myResponse.seats) || 0 : 0,
-        ifUnused: myResponse.car === "yes" ? myResponse.ifUnused || "come" : "",
-        rdv: rdvIndexOf(myResponse, Math.max(1, rdvs.length)),
-        updatedAt: Date.now(),
+        seats: myResponse.seats,
+        ifUnused: myResponse.ifUnused,
+        rdv: rdvIdx,
       };
-      if (editingOther) {
-        // Correction d'une autre réponse : on remplace l'entrée éditée.
-        const target = m.players.indexOf(editing);
-        if (target >= 0) m.players[target] = entry;
-      } else {
+      if (!editingOther) {
         myName = name;
         try { localStorage.setItem(STORAGE_KEY + ":name", name); } catch (e) {}
-        saveCarPref({ car: entry.car, seats: myResponse.seats, ifUnused: myResponse.ifUnused });
-        const idx = m.players.findIndex((p) => p.name.trim().toLowerCase() === name.toLowerCase());
-        if (idx >= 0) m.players[idx] = entry;
-        else m.players.push(entry);
+        saveCarPref({ car: answer.car, seats: myResponse.seats, ifUnused: myResponse.ifUnused });
       }
-      saveState();
-      toast("Réponse enregistrée ✔");
-      rerender();
+      withBusy(async () => {
+        // En base, le nom vit sur le profil : on le met à jour à part.
+        if (Store.mode === "db" && !editingOther) await DB.setDisplayName(name);
+        const point = rdvs[rdvIdx];
+        await Store.saveResponse(m, answer, point ? point.id : null, editingOther ? editing : null);
+        toast("Réponse enregistrée ✔");
+        rerender();
+      }, "Enregistrement impossible");
     };
   }
 
   document.getElementById("share").onclick = async () => {
-    const url = shareUrl(m);
+    const url = Store.shareUrl(m);
     const lines = [];
     if (m.arrivalTime) lines.push(`🏟️ Sur place à ${m.arrivalTime.replace(":", "h")}`);
     for (const r of rdvs) {
@@ -836,7 +1042,8 @@ function renderDetail(matchId, editIndex) {
     }
     const text = `🚌 Sondage transport${m.category ? " " + m.category : ""} — ${matchTitle(m)} (${formatDate(m.date, m.time)})`
       + (lines.length ? "\n" + lines.join("\n") : "")
-      + `\nRéponds ici : ${url}`;
+      + `\nRéponds ici : ${url}`
+      + (Store.mode === "db" ? "\n(le lien inscrit aussi aux prochains matchs de l'équipe)" : "");
     if (navigator.share) {
       try { await navigator.share({ text }); return; } catch (e) { /* annulé */ }
     }
@@ -853,14 +1060,79 @@ function renderDetail(matchId, editIndex) {
 
 document.getElementById("home-link").onclick = () => renderList();
 
-function openIncomingOrList() {
-  const importedId = handleIncomingLink();
-  if (importedId) renderDetail(importedId);
-  else renderList();
+// Lien d'invitation : #t=<jeton>[&m=<match>]. L'adhésion se fait une
+// fois ; ensuite l'appareil retrouve l'équipe tout seul.
+async function handleInvite() {
+  const hash = location.hash;
+  if (!hash.startsWith("#t=")) return false;
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get("t");
+  const wanted = params.get("m");
+  history.replaceState(null, "", location.pathname + location.search);
+  if (!token || Store.mode !== "db") return false;
+  await withBusy(async () => {
+    const teamId = await DB.joinTeam(token, myName || null);
+    await Store.loadTeams();
+    await Store.selectTeam(teamId);
+    watchTeam();
+    if (wanted && state.matches.some((m) => m.id === wanted)) renderDetail(wanted);
+    else { renderList(); toast("Bienvenue dans l'équipe ✔"); }
+  }, "Lien d'invitation invalide");
+  return true;
+}
+
+// Les changements des autres téléphones rafraîchissent l'écran, sauf
+// pendant la saisie d'une réponse pour ne pas effacer ce qui est tapé.
+function watchTeam() {
+  Store.watch(() => {
+    if (document.getElementById("r-name") || document.getElementById("f-opponent")) return;
+    const open = document.querySelector("[data-match]") ? null : currentMatchId;
+    withBusy(async () => {
+      await Store.reload();
+      if (open && state.matches.some((m) => m.id === open)) renderDetail(open);
+      else renderList();
+    });
+  });
+}
+
+let currentMatchId = null;
+
+function updateFooter() {
+  const el = document.getElementById("footer-note");
+  if (!el) return;
+  el.textContent = Store.mode === "db"
+    ? "Les réponses sont partagées avec l'équipe et se mettent à jour en direct."
+    : "Mode hors ligne — les données restent dans ce navigateur et se partagent par lien.";
+}
+
+async function start() {
+  try {
+    await Store.boot();
+  } catch (e) {
+    console.error(e);
+    toast("Base injoignable — mode local");
+  }
+  updateFooter();
+  if (await handleInvite()) return;
+  if (Store.mode === "db") {
+    await Store.reload();
+    watchTeam();
+    renderList();
+  } else {
+    const importedId = handleIncomingLink();
+    if (importedId) renderDetail(importedId);
+    else renderList();
+  }
 }
 
 // Un lien ouvert alors que l'app tourne déjà ne change que le #, sans
 // recharger la page : on traite aussi ce cas.
-window.addEventListener("hashchange", openIncomingOrList);
+window.addEventListener("hashchange", () => {
+  withBusy(async () => {
+    if (await handleInvite()) return;
+    const importedId = handleIncomingLink();
+    if (importedId) renderDetail(importedId);
+  });
+});
 
-openIncomingOrList();
+start();

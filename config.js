@@ -10,6 +10,6 @@
  * stockage local et partage par lien.
  */
 window.TRANSPORT_CONFIG = {
-  supabaseUrl: "",
-  supabaseAnonKey: "",
+  supabaseUrl: "https://nfucxwoylzvztqdifldo.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5mdWN4d295bHp2enRxZGlmbGRvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxNDQyNjcsImV4cCI6MjEwNDcyMDI2N30.oCgShUyt9afd-vTsB9p32669GrcHyA39fqdjzGrU420",
 };
