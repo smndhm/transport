@@ -15,9 +15,9 @@ insert into auth.users (id) values
 -- ---- L'organisateur crée son équipe --------------------------------
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
-insert into public.profiles (id, display_name) values (auth.uid(), 'Simon');
+-- Aucun profil préexistant : create_team doit le créer lui-même.
 select 'équipe créée : ' || name || ' / jeton long de ' || length(join_token) || ' caractères' as "1. create_team"
-from public.create_team('U13', '2026-2027');
+from public.create_team('U13', '2026-2027', 'Simon');
 
 select id as team from public.teams limit 1 \gset
 

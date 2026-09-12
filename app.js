@@ -521,7 +521,7 @@ function bindTeamHeader() {
       const name = document.getElementById("t-name").value.trim();
       if (!name) return toast("Donnez un nom à l'équipe");
       withBusy(async () => {
-        await DB.createTeam(name);
+        await DB.createTeam(name, null, myName || null);
         await Store.loadTeams();
         await Store.reload();
         renderList();
@@ -536,7 +536,7 @@ function bindTeamHeader() {
     const name = prompt("Nom de la nouvelle catégorie (ex : U15) :");
     if (!name || !name.trim()) return;
     withBusy(async () => {
-      await DB.createTeam(name.trim());
+      await DB.createTeam(name.trim(), null, myName || null);
       await Store.loadTeams();
       await Store.reload();
       renderList();

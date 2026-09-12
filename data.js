@@ -105,9 +105,13 @@ const DB = (() => {
       .map((m) => ({ ...m.teams, role: m.role }));
   }
 
-  async function createTeam(name, season) {
+  async function createTeam(name, season, displayName) {
     await ready();
-    const { data, error } = await sb().rpc("create_team", { p_name: name, p_season: season || null });
+    const { data, error } = await sb().rpc("create_team", {
+      p_name: name,
+      p_season: season || null,
+      p_display_name: displayName || null,
+    });
     if (error) throw error;
     return data;
   }

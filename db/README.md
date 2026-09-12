@@ -32,6 +32,16 @@ joueurs attendus à chaque point de rdv.
    rejouable.
 5. Récupérer l'URL du projet et la clé publique `anon` pour l'app.
 
+## Migrations
+
+`schema.sql` crée une base neuve. Sur une base déjà en service, il ne
+faut plus le rejouer : chaque évolution passe par un fichier numéroté
+dans `migrations/`, à exécuter dans l'ordre.
+
+| Fichier | Objet |
+|---|---|
+| `0001_create_team_cree_le_profil.sql` | `create_team` créait l'adhésion sans créer le profil de l'organisateur, ce qui faisait échouer la création d'équipe |
+
 ## Vérifier le schéma avant de l'appliquer
 
 `db/test/run.sh` monte un PostgreSQL jetable, applique le schéma et
