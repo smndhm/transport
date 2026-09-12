@@ -27,7 +27,12 @@ try { myName = localStorage.getItem(STORAGE_KEY + ":name") || ""; } catch (e) {}
 // Mode organisateur : activé par ?admin dans l'URL puis mémorisé sur
 // l'appareil. ?admin=0 le désactive (pour revoir l'app en mode parent).
 // Ce n'est pas une sécurité, juste un paramètre non communiqué.
-const legacyAdmin = (() => {
+// « Voir comme un parent » : masque tous les outils d'organisateur sans
+// rien changer aux droits réels, pour vérifier ce que l'équipe verra.
+let parentPreview = false;
+try { parentPreview = localStorage.getItem(STORAGE_KEY + ":asparent") === "1"; } catch (e) {}
+
+const rawAdmin = (() => {
   const p = new URLSearchParams(location.search).get("admin");
   const off = p === "0" || p === "off";
   try {
@@ -39,8 +44,21 @@ const legacyAdmin = (() => {
 })();
 
 // En mode base, le droit d'organisateur vient du rôle dans l'équipe ;
-// en mode local, du paramètre ?admin.
+// en mode local, du paramètre ?admin. L'aperçu parent annule les deux.
+let legacyAdmin = rawAdmin && !parentPreview;
 let isAdmin = legacyAdmin;
+
+function setParentPreview(on) {
+  parentPreview = on;
+  try {
+    if (on) localStorage.setItem(STORAGE_KEY + ":asparent", "1");
+    else localStorage.removeItem(STORAGE_KEY + ":asparent");
+  } catch (e) { /* stockage indisponible : l'aperçu vaut pour la session */ }
+  legacyAdmin = rawAdmin && !parentPreview;
+  isAdmin = Store.mode === "db"
+    ? Boolean(Store.team && Store.team.role === "organizer" && !parentPreview)
+    : legacyAdmin;
+}
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -81,12 +99,12 @@ const Store = {
     const wanted = this.lastTeam();
     this.team = this.teams.find((t) => t.id === wanted) || this.teams[0] || null;
     if (this.team) this.rememberTeam(this.team.id);
-    isAdmin = this.team ? this.team.role === "organizer" : false;
+    isAdmin = Boolean(this.team && this.team.role === "organizer" && !parentPreview);
   },
 
   async selectTeam(id) {
     this.team = this.teams.find((t) => t.id === id) || null;
-    isAdmin = this.team ? this.team.role === "organizer" : false;
+    isAdmin = Boolean(this.team && this.team.role === "organizer" && !parentPreview);
     this.rememberTeam(this.team ? this.team.id : null);
     await this.reload();
   },
@@ -520,7 +538,11 @@ function renderList() {
   // En mode base, les actions de création sont dans la carte de
   // l'équipe : elles portent sur cette catégorie et pas ailleurs.
   let html = teamHeader(isAdmin ? adminActions() : "");
-  if (Store.mode !== "db" && isAdmin) html += adminActions();
+  if (Store.mode !== "db") {
+    if (isAdmin) html += adminActions();
+    const toggle = previewToggle();
+    if (toggle) html += `<div class="section-actions">${toggle}</div>`;
+  }
 
   // Hiérarchie : catégorie → matchs (→ point de rdv dans le détail).
   const byCategory = (list) => {
@@ -597,7 +619,9 @@ function teamHeader(actions) {
              <button class="btn-link" id="t-diag">🩺 Diagnostic</button>
            </div>
          </div>`
-      : `<p class="empty">Aucune équipe.<br>Ouvrez le lien d'invitation envoyé par l'organisateur.</p>`;
+      : `<p class="empty">Aucune équipe.<br>Ouvrez le lien d'invitation envoyé par l'organisateur.</p>
+         ${previewToggle() ? `<div class="section-actions">${previewToggle()}</div>` : ""}`;
+    // (previewToggle() rend la même chaîne deux fois : pas d'effet de bord)
   }
   const others = Store.teams.length > 1;
   return `<div class="card">
@@ -613,8 +637,20 @@ function teamHeader(actions) {
     <div class="section-actions">
       ${legacyAdmin ? `<button class="btn-link" id="t-new">+ Nouvelle équipe</button>` : ""}
       ${legacyAdmin ? `<button class="btn-link" id="t-diag">🩺 Diagnostic</button>` : ""}
+      ${previewToggle()}
     </div>
   </div>`;
+}
+
+// N'apparaît que pour qui a réellement les outils d'organisateur : le
+// paramètre ?admin, ou le rôle organisateur dans l'équipe courante — ce
+// rôle reste vrai pendant l'aperçu, sinon le bouton retour disparaîtrait.
+function previewToggle() {
+  const organizer = rawAdmin || Boolean(Store.team && Store.team.role === "organizer");
+  if (!organizer) return "";
+  return parentPreview
+    ? `<button class="btn-link" id="t-preview">↩︎ Revenir en organisateur</button>`
+    : `<button class="btn-link" id="t-preview">👁 Voir comme un parent</button>`;
 }
 
 function bindTeamHeader() {
@@ -644,6 +680,13 @@ function bindTeamHeader() {
       await Store.reload();
       renderList();
     }, "Création impossible");
+  };
+
+  const prev = document.getElementById("t-preview");
+  if (prev) prev.onclick = () => {
+    setParentPreview(!parentPreview);
+    toast(parentPreview ? "Vue parent — les outils sont masqués" : "Mode organisateur rétabli");
+    renderList();
   };
 
   const diag = document.getElementById("t-diag");
