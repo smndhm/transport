@@ -22,6 +22,11 @@
     Utilisez « Partager » pour envoyer le sondage à l'équipe.</p>
   </footer>
 
+  <!-- Client Supabase. S'il est injoignable, l'app retombe sur le
+       stockage local : data.js vérifie sa présence avant de s'en servir. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+  <script src="config.js"></script>
+  <script src="data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
