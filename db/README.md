@@ -41,6 +41,7 @@ dans `migrations/`, à exécuter dans l'ordre.
 | Fichier | Objet |
 |---|---|
 | `0001_create_team_cree_le_profil.sql` | `create_team` créait l'adhésion sans créer le profil de l'organisateur, ce qui faisait échouer la création d'équipe |
+| `0002_reponses_invitees.sql` | une réponse peut désormais porter un nom libre au lieu d'un profil, pour saisir la voiture d'un parent qui a répondu autrement |
 
 ## Vérifier le schéma avant de l'appliquer
 

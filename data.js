@@ -95,7 +95,9 @@ const DB = (() => {
       players: (row.responses || []).map((r) => ({
         id: r.id,
         profileId: r.profile_id,
-        name: r.profiles ? r.profiles.display_name : "?",
+        isGuest: !r.profile_id,
+        mine: r.profile_id ? r.profile_id === userId : r.created_by === userId,
+        name: r.profiles ? r.profiles.display_name : (r.guest_name || "?"),
         car: r.drives ? "yes" : "no",
         seats: r.seats,
         ifUnused: r.stays_if_unused ? "stay" : "come",
@@ -161,7 +163,8 @@ const DB = (() => {
         id, opponent, match_date, kickoff_time, venue, arrival_time,
         external_source, external_uid,
         meeting_points ( id, name, departure_time, players_expected, position ),
-        responses ( id, profile_id, meeting_point_id, drives, seats, stays_if_unused,
+        responses ( id, profile_id, guest_name, created_by, meeting_point_id,
+                    drives, seats, stays_if_unused,
                     profiles ( display_name ) )
       `)
       .eq("team_id", teamId)
@@ -255,7 +258,7 @@ const DB = (() => {
 
   // ---------- Réponses ----------
 
-  async function saveResponse(matchId, pointId, answer, responseId) {
+  async function saveResponse(matchId, pointId, answer, existing) {
     await ready();
     const payload = {
       match_id: matchId,
@@ -264,12 +267,27 @@ const DB = (() => {
       seats: answer.car === "yes" ? Number(answer.seats) || 0 : 0,
       stays_if_unused: answer.ifUnused === "stay",
     };
-    // Corriger la réponse d'un autre parent (organisateur) : on cible la
-    // ligne. Sinon c'est la sienne, identifiée par (match, personne).
-    const q = responseId
-      ? sb().from("responses").update(payload).eq("id", responseId)
-      : sb().from("responses").upsert({ ...payload, profile_id: me() }, { onConflict: "match_id,profile_id" });
+
+    let q;
+    if (existing && existing.id) {
+      // Correction d'une réponse existante : on cible la ligne, et on
+      // laisse renommer si c'est une réponse saisie pour quelqu'un.
+      if (existing.isGuest) payload.guest_name = answer.name;
+      q = sb().from("responses").update(payload).eq("id", existing.id);
+    } else if (answer.asGuest) {
+      // Réponse au nom de quelqu'un d'autre : pas de profil, un nom libre.
+      q = sb().from("responses").insert({ ...payload, guest_name: answer.name });
+    } else {
+      q = sb().from("responses")
+        .upsert({ ...payload, profile_id: me() }, { onConflict: "match_id,profile_id" });
+    }
     const { error } = await q;
+    if (error) throw error;
+  }
+
+  async function deleteResponse(id) {
+    await ready();
+    const { error } = await sb().from("responses").delete().eq("id", id);
     if (error) throw error;
   }
 
@@ -381,7 +399,7 @@ const DB = (() => {
   return {
     enabled, ready, me, diagnose, testCreateTeam, fmt,
     myTeams, createTeam, joinTeam, setDisplayName,
-    loadTeam, saveMatch, deleteMatch, importMatches, saveResponse,
+    loadTeam, saveMatch, deleteMatch, importMatches, saveResponse, deleteResponse,
     watch, cacheRead, cacheWrite,
   };
 })();

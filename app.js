@@ -142,7 +142,7 @@ const Store = {
 
   async saveResponse(m, answer, pointId, editing) {
     if (this.mode === "db") {
-      await DB.saveResponse(m.dbId, pointId, answer, editing ? editing.id : null);
+      await DB.saveResponse(m.dbId, pointId, answer, editing);
       await this.reload();
       return;
     }
@@ -163,6 +163,16 @@ const Store = {
       if (idx >= 0) m.players[idx] = entry;
       else m.players.push(entry);
     }
+    saveState();
+  },
+
+  async deleteResponse(m, entry) {
+    if (this.mode === "db") {
+      await DB.deleteResponse(entry.id);
+      await this.reload();
+      return;
+    }
+    m.players = m.players.filter((x) => x !== entry);
     saveState();
   },
 
@@ -936,19 +946,30 @@ function renderDetail(matchId, editIndex) {
   // Les réponses des anciens formats restent lisibles : conduire était un
   // booléen ou « si besoin », et « ne vient pas » n'existe plus.
   const accomp = m.players.filter((p) => p.status !== "absent");
-  const mineIdx = accomp.findIndex((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
-  const editing = editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
-  // Le formulaire ne s'affiche que tant qu'on n'a pas répondu, ou pour éditer.
+  // Ma réponse : celle rattachée à mon compte en base, à mon nom en local.
+  const mineIdx = Store.mode === "db"
+    ? accomp.findIndex((p) => p.profileId && p.profileId === DB.me())
+    : accomp.findIndex((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
+
+  const adding = editIndex === "new";
+  const editing = adding ? null : editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
+  // Le formulaire s'affiche tant qu'on n'a pas répondu, ou à la demande.
   const showForm = editIndex != null || mineIdx < 0;
-  const editingOther = editIndex != null && editIndex !== mineIdx;
+  const editingOther = !adding && editIndex != null && editIndex !== mineIdx;
+  // Une réponse « invitée » n'appartient à aucun compte : son nom est libre.
+  const asGuest = adding || (editing ? (Store.mode === "db" ? Boolean(editing.isGuest) : editingOther) : false);
 
   if (editing) {
     myResponse = { car: carMode(editing) === "no" ? "no" : "yes", seats: editing.seats ?? 3, rdv: Number(editing.rdv) || 0, ifUnused: editing.ifUnused || "come" };
   } else {
     const pref = loadCarPref();
-    if (pref) myResponse = { car: pref.car ?? null, seats: pref.seats ?? 3, rdv: 0, ifUnused: pref.ifUnused || "come" };
+    myResponse = pref
+      ? { car: adding ? null : pref.car ?? null, seats: pref.seats ?? 3, rdv: 0, ifUnused: pref.ifUnused || "come" }
+      : { car: null, seats: 3, rdv: 0, ifUnused: "come" };
   }
-  const formName = editingOther ? editing.name : myName;
+  const formName = adding ? "" : editing && (editingOther || asGuest) ? editing.name : myName;
+  // On ne renomme pas le compte d'un autre parent depuis ce formulaire.
+  const nameLocked = Store.mode === "db" && Boolean(editing) && !editing.isGuest && editing.profileId !== DB.me();
 
   const drivers = accomp.filter((p) => carMode(p) !== "no");
   const walkers = accomp.filter((p) => carMode(p) === "no");
@@ -1010,9 +1031,10 @@ function renderDetail(matchId, editIndex) {
 
     ${showForm ? `
     <div class="card">
-      <h2 style="margin-top:0">${editingOther ? "Modifier la réponse" : "Ma réponse"}</h2>
+      <h2 style="margin-top:0">${adding ? "Ajouter une réponse" : editingOther || asGuest ? "Modifier la réponse" : "Ma réponse"}</h2>
+      ${adding ? `<p class="match-meta">Pour un parent qui a répondu autrement, ou une seconde voiture de votre famille.</p>` : ""}
       <label>Nom de l'accompagnateur</label>
-      <input id="r-name" value="${esc(formName)}" placeholder="Prénom ou nom de famille">
+      <input id="r-name" value="${esc(formName)}" placeholder="Prénom ou nom de famille"${nameLocked ? " disabled" : ""}>
       <label>Je conduis ?</label>
       <div class="choice-group">
         <button id="c-yes" class="${myResponse.car === "yes" ? "selected-yes" : ""}">🚗 Oui</button>
@@ -1039,9 +1061,15 @@ function renderDetail(matchId, editIndex) {
         ${mineIdx >= 0 || editIndex != null ? `<button class="btn-secondary" id="r-cancel">Annuler</button>` : ""}
         <button class="btn-primary" id="r-save">Enregistrer</button>
       </div>
+      ${editing ? `<div class="section-actions">
+        <button class="btn-danger" id="r-delete">Supprimer cette réponse</button>
+      </div>` : ""}
     </div>` : `
     <div class="section-actions">
       <button class="btn-secondary" id="r-edit">✏️ Modifier ma réponse</button>
+    </div>`}
+    ${adding ? "" : `<div class="section-actions">
+      <button class="btn-secondary" id="r-add">➕ Ajouter une voiture</button>
     </div>`}
 
     ${rdvs.length
@@ -1081,11 +1109,22 @@ function renderDetail(matchId, editIndex) {
   });
   const editBtn = document.getElementById("r-edit");
   if (editBtn) editBtn.onclick = () => renderDetail(matchId, mineIdx);
+  const addBtn = document.getElementById("r-add");
+  if (addBtn) addBtn.onclick = () => renderDetail(matchId, "new");
+  const delBtn = document.getElementById("r-delete");
+  if (delBtn) delBtn.onclick = () => {
+    if (!confirm(`Supprimer la réponse de ${editing.name} ?`)) return;
+    withBusy(async () => {
+      await Store.deleteResponse(m, editing);
+      toast("Réponse supprimée");
+      rerender();
+    }, "Suppression impossible");
+  };
   const cancelBtn = document.getElementById("r-cancel");
   if (cancelBtn) cancelBtn.onclick = () => rerender();
 
   function keepForm() {
-    if (!editingOther) myName = document.getElementById("r-name").value;
+    if (!editingOther && !asGuest) myName = document.getElementById("r-name").value;
     const seatsInput = document.getElementById("r-seats");
     if (seatsInput) myResponse.seats = Number(seatsInput.value) || 0;
     const rdvInput = document.getElementById("r-rdv");
@@ -1120,17 +1159,19 @@ function renderDetail(matchId, editIndex) {
         seats: myResponse.seats,
         ifUnused: myResponse.ifUnused,
         rdv: rdvIdx,
+        asGuest,
       };
-      if (!editingOther) {
+      // Les préférences voiture ne se mémorisent que pour soi-même.
+      if (!editingOther && !asGuest) {
         myName = name;
         try { localStorage.setItem(STORAGE_KEY + ":name", name); } catch (e) {}
         saveCarPref({ car: answer.car, seats: myResponse.seats, ifUnused: myResponse.ifUnused });
       }
       withBusy(async () => {
-        // En base, le nom vit sur le profil : on le met à jour à part.
-        if (Store.mode === "db" && !editingOther) await DB.setDisplayName(name);
+        // En base, mon nom vit sur mon profil : on le met à jour à part.
+        if (Store.mode === "db" && !editingOther && !asGuest) await DB.setDisplayName(name);
         const point = rdvs[rdvIdx];
-        await Store.saveResponse(m, answer, point ? point.id : null, editingOther ? editing : null);
+        await Store.saveResponse(m, answer, point ? point.id : null, editing);
         toast("Réponse enregistrée ✔");
         rerender();
       }, "Enregistrement impossible");

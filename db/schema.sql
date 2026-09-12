@@ -127,18 +127,31 @@ create index meeting_points_match_idx on public.meeting_points (match_id, positi
 -- Réponses
 -- ---------------------------------------------------------------- --
 
+-- Une réponse porte soit un profil (celui qui répond pour lui-même),
+-- soit un nom libre : l'organisateur saisit la voiture d'un parent qui a
+-- répondu par SMS, et une famille peut engager deux voitures depuis un
+-- seul téléphone. created_by retient qui l'a saisie.
 create table public.responses (
   id                uuid primary key default gen_random_uuid(),
   match_id          uuid not null references public.matches (id) on delete cascade,
   meeting_point_id  uuid,
-  profile_id        uuid not null references public.profiles (id) on delete cascade,
+  profile_id        uuid references public.profiles (id) on delete cascade,
+  guest_name        text,
+  created_by        uuid not null default auth.uid() references public.profiles (id) on delete set null,
   drives            boolean not null,
   seats             smallint not null default 0 check (seats between 0 and 8),
   stays_if_unused   boolean not null default false,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
 
-  -- Une seule réponse par personne et par match.
+  -- Un profil ou un nom libre, jamais les deux ni aucun.
+  constraint responses_identity check (
+    (profile_id is not null and guest_name is null)
+    or (profile_id is null and guest_name is not null and length(btrim(guest_name)) between 1 and 60)
+  ),
+
+  -- Une seule réponse par personne identifiée et par match. Les NULL
+  -- étant distincts, plusieurs réponses au nom d'invités restent permises.
   unique (match_id, profile_id),
 
   -- Pas de places annoncées sans voiture.
@@ -155,6 +168,7 @@ create table public.responses (
 create index responses_match_idx on public.responses (match_id);
 create index responses_point_idx on public.responses (meeting_point_id);
 create index responses_profile_idx on public.responses (profile_id);
+create index responses_created_by_idx on public.responses (created_by);
 
 create trigger profiles_touch       before update on public.profiles       for each row execute function public.touch_updated_at();
 create trigger teams_touch          before update on public.teams          for each row execute function public.touch_updated_at();
@@ -279,10 +293,17 @@ create policy points_write on public.meeting_points
 -- sienne, et l'organisateur peut corriger celle d'un autre.
 create policy responses_read on public.responses
   for select to authenticated using (public.is_team_member(public.match_team(match_id)));
+-- Chacun gère sa réponse et celles qu'il a saisies pour d'autres.
 create policy responses_own on public.responses
   for all to authenticated
-  using (profile_id = auth.uid() and public.is_team_member(public.match_team(match_id)))
-  with check (profile_id = auth.uid() and public.is_team_member(public.match_team(match_id)));
+  using (
+    public.is_team_member(public.match_team(match_id))
+    and (profile_id = auth.uid() or created_by = auth.uid())
+  )
+  with check (
+    public.is_team_member(public.match_team(match_id))
+    and (profile_id = auth.uid() or (profile_id is null and created_by = auth.uid()))
+  );
 create policy responses_organizer on public.responses
   for all to authenticated
   using (public.is_team_organizer(public.match_team(match_id)))
