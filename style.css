@@ -216,3 +216,11 @@ h2 { font-size: 1.15rem; margin: 20px 0 10px; }
 }
 .tag-stay { background: #eceff2; color: var(--muted); }
 .tag-come { background: #e3f0ff; color: var(--primary-dark); }
+
+.err-banner { border-color: var(--red); }
+.err-title { color: var(--red); font-weight: 700; margin: 0 0 6px; font-size: 0.9rem; }
+.err-text {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px; font-size: 0.78rem; margin: 0; white-space: pre-wrap;
+  word-break: break-word; user-select: all;
+}

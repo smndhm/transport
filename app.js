@@ -401,8 +401,32 @@ async function withBusy(fn, errorMsg) {
     await fn();
   } catch (e) {
     console.error(e);
-    toast((errorMsg || "Erreur") + describeError(e));
+    const text = (errorMsg || "Erreur") + describeError(e);
+    toast(text);
+    showError(text);
   }
+}
+
+// Un toast disparaît et ne se sélectionne pas : l'erreur reste aussi
+// affichée en haut de l'écran, avec de quoi la copier.
+function showError(text) {
+  const old = document.getElementById("err-banner");
+  if (old) old.remove();
+  const box = document.createElement("div");
+  box.id = "err-banner";
+  box.className = "card err-banner";
+  box.innerHTML = `<p class="err-title">Erreur</p>
+    <pre class="err-text">${esc(text)}</pre>
+    <div class="section-actions">
+      <button class="btn-secondary" id="err-copy">📋 Copier</button>
+      <button class="btn-link" id="err-hide">Masquer</button>
+    </div>`;
+  app.prepend(box);
+  document.getElementById("err-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(text); toast("Erreur copiée 📋"); }
+    catch (e) { prompt("Copiez ce message :", text); }
+  };
+  document.getElementById("err-hide").onclick = () => box.remove();
 }
 
 // Les erreurs PostgREST portent un code et parfois un indice : les
@@ -505,7 +529,12 @@ function teamHeader() {
            <p class="match-meta">Créez une catégorie (U11, U13…) puis partagez son lien aux parents.</p>
            <label>Nom de la catégorie</label>
            <input id="t-name" placeholder="Ex : U13">
-           <div class="section-actions"><button class="btn-primary" id="t-create">Créer l'équipe</button></div>
+           <div class="section-actions">
+             <button class="btn-primary" id="t-create">Créer l'équipe</button>
+           </div>
+           <div class="section-actions">
+             <button class="btn-link" id="t-diag">🩺 Diagnostic</button>
+           </div>
          </div>`
       : `<p class="empty">Aucune équipe.<br>Ouvrez le lien d'invitation envoyé par l'organisateur.</p>`;
   }
@@ -519,6 +548,7 @@ function teamHeader() {
     <div class="section-actions">
       ${isAdmin ? `<button class="btn-secondary" id="t-invite">🔗 Inviter les parents</button>` : ""}
       ${legacyAdmin ? `<button class="btn-link" id="t-new">+ Nouvelle équipe</button>` : ""}
+      ${legacyAdmin ? `<button class="btn-link" id="t-diag">🩺 Diagnostic</button>` : ""}
     </div>
   </div>`;
 }
@@ -552,6 +582,9 @@ function bindTeamHeader() {
     }, "Création impossible");
   };
 
+  const diag = document.getElementById("t-diag");
+  if (diag) diag.onclick = () => renderDiag();
+
   const inv = document.getElementById("t-invite");
   if (inv) inv.onclick = async () => {
     const url = Store.shareUrl(null);
@@ -560,6 +593,57 @@ function bindTeamHeader() {
     try { await navigator.clipboard.writeText(text); toast("Lien d'invitation copié 📋"); }
     catch (e) { prompt("Copiez ce lien :", url); }
   };
+}
+
+// Écran de diagnostic : rejoue la chaîne étape par étape et produit un
+// rapport sélectionnable, plutôt qu'un message fugace.
+function renderDiag() {
+  app.innerHTML = `
+    <button class="btn-link" id="back">← Retour</button>
+    <div class="card">
+      <h2 style="margin-top:0">🩺 Diagnostic</h2>
+      <p class="match-meta">Vérifie chaque étape entre l'app et la base.</p>
+      <div id="diag-out"><p class="empty">Analyse en cours…</p></div>
+      <div class="section-actions">
+        <button class="btn-secondary" id="diag-again">Relancer</button>
+        <button class="btn-primary" id="diag-copy">📋 Copier le rapport</button>
+      </div>
+      <label>Test d'écriture</label>
+      <p class="match-meta" style="margin:0 0 6px">Crée une équipe pour de vrai, et affiche l'erreur exacte si ça échoue.</p>
+      <div class="section-actions">
+        <button class="btn-secondary" id="diag-write">Tester la création d'équipe</button>
+      </div>
+    </div>`;
+
+  document.getElementById("back").onclick = () => renderList();
+
+  let report = "";
+  const out = document.getElementById("diag-out");
+
+  const run = async () => {
+    out.innerHTML = `<p class="empty">Analyse en cours…</p>`;
+    const steps = await DB.diagnose();
+    report = steps.map((s) => `${s.ok ? "OK " : "KO "} ${s.label}${s.detail ? " : " + s.detail : ""}`).join("\n");
+    out.innerHTML = `<ul class="player-list">${steps
+      .map((s) => `<li><span>${s.ok ? "✔" : "✘"} ${esc(s.label)}</span></li>` +
+        (s.detail ? `<li style="border:none;padding-top:0"><span class="match-meta">${esc(s.detail)}</span></li>` : ""))
+      .join("")}</ul>`;
+  };
+
+  document.getElementById("diag-again").onclick = () => withBusy(run, "Diagnostic impossible");
+  document.getElementById("diag-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(report); toast("Rapport copié 📋"); }
+    catch (e) { prompt("Copiez ce rapport :", report); }
+  };
+  document.getElementById("diag-write").onclick = () => withBusy(async () => {
+    const res = await DB.testCreateTeam("Test diagnostic");
+    report += `\n${res.ok ? "OK " : "KO "} Création d'équipe : ${res.detail}`;
+    out.innerHTML += `<p class="match-meta" style="margin-top:8px">${res.ok ? "✔" : "✘"} Création d'équipe : ${esc(res.detail)}</p>`;
+    if (!res.ok) showError("Création d'équipe — " + res.detail);
+    else { await Store.loadTeams(); toast("Équipe de test créée ✔"); }
+  }, "Test impossible");
+
+  withBusy(run, "Diagnostic impossible");
 }
 
 function matchCard(m, past = false) {

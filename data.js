@@ -305,8 +305,81 @@ const DB = (() => {
     } catch (e) { /* mode privé ou quota : le cache est optionnel */ }
   }
 
+  // ---------- Diagnostic ----------
+
+  function fmt(e) {
+    if (!e) return "";
+    return [e.message, e.code ? "[" + e.code + "]" : "", e.hint || e.details || ""]
+      .map((x) => (x || "").toString().trim()).filter(Boolean).join(" ");
+  }
+
+  // Rejoue la chaîne complète, étape par étape, pour situer exactement
+  // où ça bloque au lieu de deviner depuis un message fugace.
+  async function diagnose() {
+    const steps = [];
+    const add = (label, ok, detail) => steps.push({ label, ok, detail: detail || "" });
+    const c = config();
+
+    add("Configuration présente", Boolean(c.supabaseUrl && c.supabaseAnonKey), c.supabaseUrl || "(vide)");
+    add("Client Supabase chargé", Boolean(window.supabase),
+        window.supabase ? "" : "le script du CDN n'a pas pu être chargé");
+    if (!window.supabase || !c.supabaseUrl) return steps;
+
+    try {
+      await ready();
+      add("Session anonyme", true, "utilisateur " + userId);
+    } catch (e) {
+      add("Session anonyme", false, fmt(e) + " — les connexions anonymes sont-elles activées ?");
+      return steps;
+    }
+
+    try {
+      const { data, error } = await sb().from("profiles").select("id, display_name").eq("id", userId);
+      if (error) throw error;
+      add("Lecture du profil", true, data.length ? "profil « " + data[0].display_name + " »" : "aucun profil");
+    } catch (e) {
+      add("Lecture du profil", false, fmt(e));
+    }
+
+    try {
+      const { error } = await sb().from("profiles")
+        .upsert({ id: userId, display_name: "Parent" }, { onConflict: "id", ignoreDuplicates: true });
+      if (error) throw error;
+      add("Écriture du profil", true);
+    } catch (e) {
+      add("Écriture du profil", false, fmt(e));
+    }
+
+    try {
+      const t = await myTeams();
+      add("Lecture des équipes", true, t.length + " équipe(s) : " + t.map((x) => x.name).join(", "));
+    } catch (e) {
+      add("Lecture des équipes", false, fmt(e));
+    }
+
+    try {
+      const { error } = await sb().from("matches").select("id").limit(1);
+      if (error) throw error;
+      add("Lecture des matchs", true);
+    } catch (e) {
+      add("Lecture des matchs", false, fmt(e));
+    }
+
+    return steps;
+  }
+
+  // Test d'écriture réel : c'est l'opération qui échoue chez l'utilisateur.
+  async function testCreateTeam(name) {
+    try {
+      const team = await createTeam(name, null, null);
+      return { ok: true, detail: "équipe « " + team.name + " » créée" };
+    } catch (e) {
+      return { ok: false, detail: fmt(e) };
+    }
+  }
+
   return {
-    enabled, ready, me,
+    enabled, ready, me, diagnose, testCreateTeam, fmt,
     myTeams, createTeam, joinTeam, setDisplayName,
     loadTeam, saveMatch, deleteMatch, importMatches, saveResponse,
     watch, cacheRead, cacheWrite,
