@@ -91,19 +91,43 @@ const Store = {
     await this.reload();
   },
 
-  // Recharge les matchs de l'équipe courante. Le cache local évite un
-  // écran vide quand le réseau est mauvais au bord d'un terrain.
-  async reload() {
-    if (this.mode !== "db") return;
-    if (!this.team) { state.matches = []; return; }
+  // Recharge les matchs de l'équipe courante. Renvoie false si la base
+  // n'a pas répondu : c'est à l'appelant de dire ce que ça implique, car
+  // « je n'ai pas pu lire » et « je n'ai pas pu écrire » ne se valent pas.
+  // Le cache local évite un écran vide au bord d'un terrain.
+  lastError: null,
+
+  async reload(retry = true) {
+    if (this.mode !== "db") return true;
+    if (!this.team) { state.matches = []; return true; }
     try {
       state.matches = await DB.loadTeam(this.team.id, this.team.name);
       DB.cacheWrite(this.team.id, state.matches);
+      this.lastError = null;
+      return true;
     } catch (e) {
+      // Une coupure brève ne devrait pas coûter un écran périmé.
+      if (retry) {
+        await new Promise((r) => setTimeout(r, 1200));
+        return this.reload(false);
+      }
+      this.lastError = e;
       const cached = DB.cacheRead(this.team.id);
       state.matches = cached || [];
-      toast(cached ? "Hors ligne — dernières données connues" : "Impossible de joindre la base");
+      return false;
     }
+  },
+
+  // Après une écriture réussie : si la relecture échoue, la donnée est
+  // bien enregistrée, seul l'affichage est en retard. Le dire tel quel.
+  viewStale: false,
+
+  async refreshAfterWrite() {
+    this.viewStale = false;
+    if (await this.reload()) return;
+    this.viewStale = true;
+    const detail = describeError(this.lastError);
+    showError("Enregistré, mais la relecture a échoué" + detail);
   },
 
   // Réagit aux changements des autres téléphones.
@@ -116,7 +140,7 @@ const Store = {
   async saveMatch(match, data) {
     if (this.mode === "db") {
       const id = await DB.saveMatch(this.team.id, { ...(match || {}), ...data });
-      await this.reload();
+      await this.refreshAfterWrite();
       return id;
     }
     if (match) {
@@ -133,7 +157,7 @@ const Store = {
   async deleteMatch(m) {
     if (this.mode === "db") {
       await DB.deleteMatch(m.dbId);
-      await this.reload();
+      await this.refreshAfterWrite();
       return;
     }
     state.matches = state.matches.filter((x) => x.id !== m.id);
@@ -143,7 +167,7 @@ const Store = {
   async saveResponse(m, answer, pointId, editing) {
     if (this.mode === "db") {
       await DB.saveResponse(m.dbId, pointId, answer, editing);
-      await this.reload();
+      await this.refreshAfterWrite();
       return;
     }
     // Mode local : la réponse est identifiée par le nom saisi.
@@ -169,7 +193,7 @@ const Store = {
   async deleteResponse(m, entry) {
     if (this.mode === "db") {
       await DB.deleteResponse(entry.id);
-      await this.reload();
+      await this.refreshAfterWrite();
       return;
     }
     m.players = m.players.filter((x) => x !== entry);
@@ -179,7 +203,7 @@ const Store = {
   async importEvents(events) {
     if (this.mode === "db") {
       const count = await DB.importMatches(this.team.id, events);
-      await this.reload();
+      await this.refreshAfterWrite();
       return count;
     }
     return mergeEvents(events);
@@ -425,13 +449,16 @@ function showError(text) {
   const box = document.createElement("div");
   box.id = "err-banner";
   box.className = "card err-banner";
+  box.style.maxWidth = "560px";
+  box.style.margin = "16px auto 0";
   box.innerHTML = `<p class="err-title">Erreur</p>
     <pre class="err-text">${esc(text)}</pre>
     <div class="section-actions">
       <button class="btn-secondary" id="err-copy">📋 Copier</button>
       <button class="btn-link" id="err-hide">Masquer</button>
     </div>`;
-  app.prepend(box);
+  // Hors de #app : les écrans se redessinent, l'erreur doit rester.
+  app.parentNode.insertBefore(box, app);
   document.getElementById("err-copy").onclick = async () => {
     try { await navigator.clipboard.writeText(text); toast("Erreur copiée 📋"); }
     catch (e) { prompt("Copiez ce message :", text); }
@@ -1167,7 +1194,7 @@ function renderDetail(matchId, editIndex) {
         if (Store.mode === "db" && !editingOther && !asGuest) await DB.setDisplayName(name);
         const point = rdvs[rdvIdx];
         await Store.saveResponse(m, answer, point ? point.id : null, editing);
-        toast("Réponse enregistrée ✔");
+        toast(Store.viewStale ? "Enregistré ✔ — affichage pas à jour" : "Réponse enregistrée ✔");
         rerender();
       }, "Enregistrement impossible");
     };
@@ -1256,7 +1283,11 @@ async function start() {
   updateFooter();
   if (await handleInvite()) return;
   if (Store.mode === "db") {
-    await Store.reload();
+    if (!(await Store.reload())) {
+      const detail = describeError(Store.lastError);
+      toast("Hors ligne — dernières données connues" + detail);
+      showError("Lecture de la base impossible" + detail);
+    }
     watchTeam();
     renderList();
   } else {
