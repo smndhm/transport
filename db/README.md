@@ -34,6 +34,12 @@ joueurs attendus à chaque point de rdv.
 
 ## Migrations
 
+L'app tolère une base en retard : si une colonne apportée par une
+migration manque, elle la retire de sa requête et continue, en masquant
+la fonctionnalité concernée. Le déploiement du code ne casse donc plus
+l'app en attendant l'exécution du SQL — mais la fonctionnalité n'arrive
+qu'une fois la migration passée.
+
 `schema.sql` crée une base neuve. Sur une base déjà en service, il ne
 faut plus le rejouer : chaque évolution passe par un fichier numéroté
 dans `migrations/`, à exécuter dans l'ordre.

@@ -1082,7 +1082,7 @@ function renderDetail(matchId, editIndex) {
           ${g.members.length
             ? `<ul class="player-list" style="margin-top:8px">${g.members
                 .map((entry, j) => responseLine(entry.p, entry.idx, g.spare, entry.used,
-                  isAdmin && g.members.length > 1
+                  isAdmin && g.members.length > 1 && (Store.mode !== "db" || DB.supportsOrdering())
                     ? `<span class="move-btns"><button class="move" data-move="${g.i}:${j}:-1"${j === 0 ? " disabled" : ""}>↑</button><button class="move" data-move="${g.i}:${j}:1"${j === g.members.length - 1 ? " disabled" : ""}>↓</button></span>`
                     : ""))
                 .join("")}</ul>`

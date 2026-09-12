@@ -94,7 +94,8 @@ const DB = (() => {
       })),
       players: (row.responses || [])
         // L'ordre décidé par l'organisateur ; à égalité, l'ancienneté.
-        .sort((a, b) => (a.position - b.position) || String(a.created_at).localeCompare(String(b.created_at)))
+        .sort((a, b) => ((a.position || 0) - (b.position || 0))
+          || String(a.created_at || "").localeCompare(String(b.created_at || "")))
         .map((r) => ({
         id: r.id,
         position: r.position,
@@ -159,22 +160,48 @@ const DB = (() => {
 
   // ---------- Matchs ----------
 
+  // Colonnes de responses apportées par des migrations. Si la base n'a
+  // pas encore été migrée, on les retire et on recharge : l'app reste
+  // utilisable entre le déploiement du code et l'exécution du SQL, au
+  // lieu d'afficher une erreur jusqu'à ce que quelqu'un s'en occupe.
+  let optionalCols = ["guest_name", "created_by", "position", "created_at"];
+
+  function matchesSelect() {
+    const extra = optionalCols.length ? ", " + optionalCols.join(", ") : "";
+    return `
+      id, opponent, match_date, kickoff_time, venue, arrival_time,
+      external_source, external_uid,
+      meeting_points ( id, name, departure_time, players_expected, position ),
+      responses ( id, profile_id, meeting_point_id, drives, seats,
+                  stays_if_unused${extra},
+                  profile:profiles!responses_profile_id_fkey ( display_name ) )
+    `;
+  }
+
   async function loadTeam(teamId, teamName) {
     await ready();
-    const { data, error } = await sb()
-      .from("matches")
-      .select(`
-        id, opponent, match_date, kickoff_time, venue, arrival_time,
-        external_source, external_uid,
-        meeting_points ( id, name, departure_time, players_expected, position ),
-        responses ( id, profile_id, guest_name, created_by, meeting_point_id,
-                    drives, seats, stays_if_unused, position, created_at,
-                    profile:profiles!responses_profile_id_fkey ( display_name ) )
-      `)
-      .eq("team_id", teamId)
-      .order("match_date");
-    if (error) throw error;
-    return (data || []).map((row) => toAppMatch(row, teamName));
+    for (let attempt = 0; attempt <= optionalCols.length; attempt++) {
+      const { data, error } = await sb()
+        .from("matches")
+        .select(matchesSelect())
+        .eq("team_id", teamId)
+        .order("match_date");
+      if (!error) return (data || []).map((row) => toAppMatch(row, teamName));
+
+      // « column responses_1.position does not exist » → on retire position.
+      const m = error.code === "42703" && /\.(\w+)\s+does not exist/.exec(error.message || "");
+      const col = m && m[1];
+      if (!col || !optionalCols.includes(col)) throw error;
+      console.warn("Colonne absente (migration non appliquée ?) :", col);
+      optionalCols = optionalCols.filter((c) => c !== col);
+    }
+    throw new Error("Lecture impossible");
+  }
+
+  // Vrai seulement si la base connaît la colonne : sert à n'afficher les
+  // flèches de tri que lorsqu'elles peuvent fonctionner.
+  function supportsOrdering() {
+    return optionalCols.includes("position");
   }
 
   async function saveMatch(teamId, m) {
@@ -294,7 +321,12 @@ const DB = (() => {
     await ready();
     for (let i = 0; i < ids.length; i++) {
       const { error } = await sb().from("responses").update({ position: i + 1 }).eq("id", ids[i]);
-      if (error) throw error;
+      if (error) {
+        if (error.code === "42703" || error.code === "PGRST204") {
+          throw new Error("La base n'a pas encore la colonne d'ordre (migration 0003)");
+        }
+        throw error;
+      }
     }
   }
 
@@ -412,7 +444,7 @@ const DB = (() => {
   return {
     enabled, ready, me, diagnose, testCreateTeam, fmt,
     myTeams, createTeam, joinTeam, setDisplayName,
-    loadTeam, saveMatch, deleteMatch, importMatches, saveResponse, deleteResponse, setResponsePositions,
+    loadTeam, supportsOrdering, saveMatch, deleteMatch, importMatches, saveResponse, deleteResponse, setResponsePositions,
     watch, cacheRead, cacheWrite,
   };
 })();
