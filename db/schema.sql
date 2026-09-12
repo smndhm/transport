@@ -15,6 +15,10 @@
 -- eux-mêmes. Leur convocation est gérée dans Kalisport ; ici on ne
 -- retient que le nombre de joueurs attendus à chaque point de rdv.
 
+-- Tout est dans une transaction : si une seule instruction échoue, rien
+-- n'est créé et le script peut être relancé tel quel après correction.
+begin;
+
 create extension if not exists pgcrypto with schema extensions;
 
 -- Jeton d'invitation : aléatoire, non devinable, sûr en URL.
@@ -340,3 +344,23 @@ end $$;
 
 revoke all on function public.create_team(text, text) from public;
 grant execute on function public.create_team(text, text) to authenticated;
+
+commit;
+
+-- ------------------------------------------------------------------ --
+-- Pour repartir de zéro (efface TOUTES les données) : exécuter ceci
+-- avant de rejouer le script.
+--
+--   drop view if exists public.match_status, public.meeting_point_status;
+--   drop table if exists public.responses, public.meeting_points,
+--                        public.matches, public.team_members,
+--                        public.teams, public.profiles cascade;
+--   drop function if exists public.join_team(text, text),
+--                           public.create_team(text, text),
+--                           public.is_team_member(uuid),
+--                           public.is_team_organizer(uuid),
+--                           public.match_team(uuid),
+--                           public.touch_updated_at(),
+--                           public.gen_token(int);
+--   drop type if exists public.member_role;
+-- ------------------------------------------------------------------ --
