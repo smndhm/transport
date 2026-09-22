@@ -19,39 +19,47 @@ Ce qui n'est volontairement pas modélisé : les joueurs eux-mêmes. Leur
 convocation vit dans Kalisport ; le schéma ne retient que le nombre de
 joueurs attendus à chaque point de rdv.
 
-## Mise en place sur Supabase
+## Où vit le schéma
 
-1. Créer le projet en choisissant une **région européenne**.
-2. Activer les connexions anonymes : *Authentication → Providers →
-   Anonymous sign-ins*. C'est ce qui donne à chaque appareil un
-   `auth.uid()` stable, sans mot de passe à retenir.
-3. Coller `schema.sql` dans le *SQL Editor* et l'exécuter.
-4. Activer le temps réel en exécutant `realtime.sql` dans le *SQL
-   Editor*. L'emplacement de ce réglage dans l'interface change selon
-   les versions du tableau de bord ; le script, lui, est stable et
-   rejouable.
-5. Récupérer l'URL du projet et la clé publique `anon` pour l'app.
-
-## Migrations
-
-L'app tolère une base en retard : si une colonne apportée par une
-migration manque, elle la retire de sa requête et continue, en masquant
-la fonctionnalité concernée. Le déploiement du code ne casse donc plus
-l'app en attendant l'exécution du SQL — mais la fonctionnalité n'arrive
-qu'une fois la migration passée.
-
-`schema.sql` crée une base neuve. Sur une base déjà en service, il ne
-faut plus le rejouer : chaque évolution passe par un fichier numéroté
-dans `migrations/`, à exécuter dans l'ordre.
+Dans **`supabase/migrations/`**, à la racine du dépôt — l'emplacement
+que l'intégration GitHub de Supabase surveille. Chaque fichier y porte
+un horodatage `AAAAMMJJhhmmss_nom.sql` et n'est appliqué qu'une fois :
+Supabase tient la liste dans `supabase_migrations.schema_migrations`.
 
 | Fichier | Objet |
 |---|---|
-| `0001_create_team_cree_le_profil.sql` | `create_team` créait l'adhésion sans créer le profil de l'organisateur, ce qui faisait échouer la création d'équipe |
-| `0002_reponses_invitees.sql` | une réponse peut désormais porter un nom libre au lieu d'un profil, pour saisir la voiture d'un parent qui a répondu autrement |
-| `0003_ordre_des_voitures.sql` | ordre des réponses à un point de rdv, pour affecter les places aux voitures prioritaires |
-| `0004_suppression_equipe.sql` | droit de supprimer une équipe : sans cette règle, le DELETE n'efface rien et ne lève aucune erreur — **recouverte par 0006** |
-| `0005_regles_des_reponses.sql` | recrée `responses_own` et `responses_organizer` : si l'une manque, l'organisateur ne peut plus toucher la réponse d'un autre, sans message d'erreur — **recouverte par 0006** |
-| `0006_regles_ouvertes.sql` | partage actuel : le coach garde matchs, équipe et adhésions ; tout membre pose un point de rdv et corrige n'importe quelle voiture. Contient aussi `teams_delete` (0004), donc **sur une base en service, 0003 puis 0006 suffisent** |
+| `20260922190000_schema_initial.sql` | tout le schéma : tables, vues, fonctions, règles d'accès. C'est la référence |
+| `20260922190100_temps_reel.sql` | publication temps réel sur `matches`, `meeting_points` et `responses` |
+
+`supabase/config.toml` désigne le projet et fige les réglages dont
+l'app dépend — au premier chef **les connexions anonymes**, sans
+lesquelles plus personne ne lit ni n'écrit quoi que ce soit.
+
+## Ajouter une évolution
+
+1. Créer `supabase/migrations/<horodatage>_ce_que_ça_fait.sql`.
+2. La rendre **rejouable** : voir plus bas, c'est la règle qui a coûté
+   le plus cher ici.
+3. `db/test/run.sh` pour la valider sur un PostgreSQL jetable — il
+   applique tout dans l'ordre, **rejoue une seconde fois**, puis lance
+   les contrôles.
+4. Pousser. Supabase applique ce qui manque.
+
+Pour la première fois seulement, sur la base déjà en service :
+`db/mise-a-niveau.sql` l'amène au schéma de référence et déclare
+l'historique comme appliqué, pour que le premier déploiement ne tente
+pas de recréer l'existant.
+
+L'app, elle, tolère une base en retard : si une colonne apportée par une
+migration manque, elle la retire de sa requête et continue, en masquant
+la fonctionnalité concernée. Le déploiement du code ne casse donc pas
+l'app si le SQL arrive une minute plus tard.
+
+### L'historique d'avant
+
+`db/migrations/0001` à `0006` sont les migrations de la période
+manuelle, repliées dans le schéma initial. Elles restent pour
+l'histoire ; on n'en exécute plus aucune.
 
 ## Qui a le droit de quoi
 
@@ -113,10 +121,11 @@ n'ont pas eu lieu. C'est vrai pour les équipes comme pour les réponses :
 un parent qui touche la réponse d'un autre ne reçoit aucune erreur, la
 ligne lui est simplement invisible.
 
-## Vérifier le schéma avant de l'appliquer
+## Vérifier avant de pousser
 
-`db/test/run.sh` monte un PostgreSQL jetable, applique le schéma et
-rejoue une série de contrôles : intégrité entre matchs et points de rdv,
+`db/test/run.sh` monte un PostgreSQL jetable, applique les migrations
+dans l'ordre, **les rejoue une seconde fois** pour prouver qu'elles sont
+idempotentes, puis rejoue une série de contrôles : intégrité entre matchs et points de rdv,
 unicité des réponses, dédoublonnage de l'import Kalisport, et surtout les
 règles d'accès (un non-membre ne voit rien ; un parent corrige n'importe
 quelle voiture et pose un point de rdv, mais ne touche ni au calendrier

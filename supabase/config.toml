@@ -1,0 +1,28 @@
+# Projet Supabase lié à ce dépôt.
+#
+# Ce fichier sert deux choses :
+#   · il désigne le projet auquel l'intégration GitHub applique les
+#     migrations de supabase/migrations/ ;
+#   · il décrit les réglages dont l'app dépend, pour qu'ils ne se
+#     perdent pas si le projet est recréé ou la config redéployée.
+#
+# Le reste des sections du fichier généré par `supabase init` ne concerne
+# que la pile locale (Docker) : on ne s'en sert pas, on les laisse aux
+# valeurs par défaut du CLI.
+
+project_id = "nfucxwoylzvztqdifldo"
+
+[auth]
+enabled = true
+
+# Le cœur du modèle d'identité : pas de mot de passe, chaque appareil
+# ouvre une session anonyme qui lui donne un auth.uid() stable. Sans
+# cela, plus personne ne peut ni lire ni écrire — toutes les règles RLS
+# s'appuient dessus. À laisser à true.
+enable_anonymous_sign_ins = true
+
+# Pas d'inscription par e-mail : l'entrée dans une équipe se fait par le
+# lien d'invitation, échangé contre une adhésion par join_team().
+[auth.email]
+enable_signup = false
+enable_confirmations = false

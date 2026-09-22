@@ -20,9 +20,3 @@ begin
     end if;
   end loop;
 end $$;
-
--- Vérification : doit renvoyer les trois tables.
-select schemaname, tablename
-from pg_publication_tables
-where pubname = 'supabase_realtime'
-order by tablename;
