@@ -118,8 +118,9 @@ ligne lui est simplement invisible.
 `db/test/run.sh` monte un PostgreSQL jetable, applique le schéma et
 rejoue une série de contrôles : intégrité entre matchs et points de rdv,
 unicité des réponses, dédoublonnage de l'import Kalisport, et surtout les
-règles d'accès (un non-membre ne voit rien, un parent ne peut pas créer
-de match ni modifier la réponse d'un autre, l'organisateur si).
+règles d'accès (un non-membre ne voit rien ; un parent corrige n'importe
+quelle voiture et pose un point de rdv, mais ne touche ni au calendrier
+ni à l'équipe).
 
 Les blocs marqués « doit échouer » affichent une erreur : c'est le
 résultat attendu.
