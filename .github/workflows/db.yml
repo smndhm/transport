@@ -1,0 +1,58 @@
+name: Migrations Supabase
+
+# Applique les migrations de supabase/migrations/ à la base, à chaque
+# push sur main qui en touche une. Même effet que l'intégration GitHub
+# de Supabase, mais entièrement décrit ici — donc lisible, testable et
+# réparable sans passer par leur tableau de bord.
+#
+# Un seul secret à créer : SUPABASE_DB_URL, la chaîne de connexion de la
+# base (Supabase → Connect → URI, avec le mot de passe dedans). Tant
+# qu'il n'existe pas, ce workflow ne fait rien et ne signale pas d'échec.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - ".github/workflows/db.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: db-migrations
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: secret
+        name: Le secret est-il en place ?
+        env:
+          URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Rien à faire::Le secret SUPABASE_DB_URL n'est pas défini. Créez-le dans Settings → Secrets and variables → Actions pour que les migrations partent toutes seules."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: supabase/setup-cli@v1
+        if: steps.secret.outputs.present == 'true'
+        with:
+          version: latest
+
+      - name: Ce qui va être appliqué
+        if: steps.secret.outputs.present == 'true'
+        env:
+          URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: supabase db push --dry-run --db-url "$URL"
+
+      - name: Appliquer
+        if: steps.secret.outputs.present == 'true'
+        env:
+          URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: supabase db push --db-url "$URL"
