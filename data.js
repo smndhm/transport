@@ -113,15 +113,31 @@ const DB = (() => {
 
   // ---------- Équipes ----------
 
+  // Mes équipes, et mon rôle dans chacune.
+  //
+  // Le filtre sur profile_id est indispensable : la règle members_read
+  // laisse voir TOUS les membres de ses équipes, pas seulement sa propre
+  // adhésion. Sans lui, une équipe de quatre parents apparaissait quatre
+  // fois dans le sélecteur, et le rôle retenu était celui de la ligne
+  // que la base renvoyait en premier — un parent au hasard, ce qui
+  // privait l'organisateur de ses outils.
   async function myTeams() {
     await ready();
     const { data, error } = await sb()
       .from("team_members")
-      .select("role, teams ( id, name, season, join_token )");
+      .select("role, teams ( id, name, season, join_token )")
+      .eq("profile_id", me());
     if (error) throw error;
-    return (data || [])
-      .filter((m) => m.teams)
-      .map((m) => ({ ...m.teams, role: m.role }));
+    const parId = new Map();
+    for (const m of data || []) {
+      if (!m.teams) continue;
+      // Ceinture et bretelles : une équipe n'apparaît qu'une fois, et
+      // c'est le rôle le plus fort qui l'emporte.
+      const vu = parId.get(m.teams.id);
+      if (vu && vu.role === "organizer") continue;
+      parId.set(m.teams.id, { ...m.teams, role: m.role });
+    }
+    return [...parId.values()];
   }
 
   async function createTeam(name, season, displayName) {
