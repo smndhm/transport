@@ -9,6 +9,13 @@
 # Le reste des sections du fichier généré par `supabase init` ne concerne
 # que la pile locale (Docker) : on ne s'en sert pas, on les laisse aux
 # valeurs par défaut du CLI.
+#
+# À savoir : sur la branche de production, le déploiement annonce
+# « Skipping configuration for protected branch » — il applique les
+# migrations mais PAS cette configuration. Les réglages décrits ici sont
+# donc une mémoire de ce que le projet doit avoir, pas une commande. Si
+# les connexions anonymes venaient à être coupées, il faudrait les
+# réactiver à la main dans Authentication → Providers.
 
 project_id = "nfucxwoylzvztqdifldo"
 
