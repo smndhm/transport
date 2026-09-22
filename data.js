@@ -351,8 +351,13 @@ const DB = (() => {
   // ---------- Réponses ----------
 
   const REFUS = "cette réponse n'est pas la vôtre — seul son auteur ou l'organisateur peut la modifier";
+  // Quand l'app sait qu'on avait le droit, un refus de la base ne vient
+  // pas de l'utilisateur mais de règles d'accès incomplètes.
+  const REFUS_ANORMAL = "la base a refusé alors que vous en avez le droit — "
+    + "les règles d'accès aux réponses sont incomplètes (migration 0005 à exécuter)";
+  const refus = (allowed) => new Error(allowed ? REFUS_ANORMAL : REFUS);
 
-  async function saveResponse(matchId, pointId, answer, existing) {
+  async function saveResponse(matchId, pointId, answer, existing, allowed) {
     await ready();
     const payload = {
       match_id: matchId,
@@ -372,7 +377,7 @@ const DB = (() => {
       const { data, error: upErr } = await sb()
         .from("responses").update(payload).eq("id", existing.id).select("id");
       if (upErr) throw upErr;
-      if (!data || !data.length) throw new Error(REFUS);
+      if (!data || !data.length) throw refus(allowed);
       return;
     } else if (answer.asGuest) {
       // Réponse au nom de quelqu'un d'autre : pas de profil, un nom libre.
@@ -403,11 +408,11 @@ const DB = (() => {
   // elle est invisible. Le DELETE n'efface alors rien et n'annonce aucune
   // erreur — l'app croyait avoir supprimé. On regarde donc ce qui a
   // réellement disparu.
-  async function deleteResponse(id) {
+  async function deleteResponse(id, allowed) {
     await ready();
     const { data, error } = await sb().from("responses").delete().eq("id", id).select("id");
     if (error) throw error;
-    if (!data || !data.length) throw new Error(REFUS);
+    if (!data || !data.length) throw refus(allowed);
   }
 
 
@@ -453,7 +458,7 @@ const DB = (() => {
 
   // Rejoue la chaîne complète, étape par étape, pour situer exactement
   // où ça bloque au lieu de deviner depuis un message fugace.
-  async function diagnose() {
+  async function diagnose(teamId) {
     const steps = [];
     const add = (label, ok, detail) => steps.push({ label, ok, detail: detail || "" });
     const c = config();
@@ -488,9 +493,14 @@ const DB = (() => {
       add("Écriture du profil", false, fmt(e));
     }
 
+    let teams = [];
     try {
-      const t = await myTeams();
-      add("Lecture des équipes", true, t.length + " équipe(s) : " + t.map((x) => x.name).join(", "));
+      teams = await myTeams();
+      // Le rôle décide de presque tout : une équipe rejointe par lien
+      // plutôt que créée laisse « parent », sans les outils.
+      add("Lecture des équipes", true, teams.length
+        ? teams.map((x) => x.name + " (" + (x.role === "organizer" ? "organisateur" : "parent") + ")").join(", ")
+        : "aucune équipe");
     } catch (e) {
       add("Lecture des équipes", false, fmt(e));
     }
@@ -501,6 +511,45 @@ const DB = (() => {
       add("Lecture des matchs", true);
     } catch (e) {
       add("Lecture des matchs", false, fmt(e));
+    }
+
+    // Droit d'écrire sur les réponses : c'est ce qui manque quand une
+    // suppression n'efface rien sans lever d'erreur. On teste pour de
+    // vrai, par une mise à jour qui ne change aucune valeur.
+    const team = teams.find((t) => t.id === teamId) || teams[0];
+    if (team) {
+      try {
+        const { data: ms, error: mErr } = await sb().from("matches").select("id").eq("team_id", team.id).limit(20);
+        if (mErr) throw mErr;
+        const ids = (ms || []).map((m) => m.id);
+        if (!ids.length) {
+          add("Écriture des réponses", true, "aucun match dans « " + team.name + " » : rien à tester");
+        } else {
+          const { data: rs, error: rErr } = await sb().from("responses")
+            .select("id, position, profile_id, created_by").in("match_id", ids).limit(8);
+          if (rErr) throw rErr;
+          if (!rs || !rs.length) {
+            add("Écriture des réponses", true, "aucune réponse à tester");
+          } else {
+            let writable = 0;
+            for (const r of rs) {
+              const { data: touched } = await sb().from("responses")
+                .update({ position: r.position == null ? 0 : r.position })
+                .eq("id", r.id).select("id");
+              if (touched && touched.length) writable++;
+            }
+            const role = team.role === "organizer" ? "organisateur" : "parent";
+            const mine = rs.filter((r) => r.profile_id === userId || r.created_by === userId).length;
+            add("Écriture des réponses", team.role === "organizer" ? writable === rs.length : writable >= mine,
+              writable + " modifiable(s) sur " + rs.length + " · " + mine + " à moi · rôle " + role
+              + (team.role === "organizer" && writable < rs.length
+                ? " — un organisateur devrait pouvoir tout modifier : règle responses_organizer absente (migration 0005)"
+                : ""));
+          }
+        }
+      } catch (e) {
+        add("Écriture des réponses", false, fmt(e));
+      }
     }
 
     return steps;

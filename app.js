@@ -184,7 +184,7 @@ const Store = {
 
   async saveResponse(m, answer, pointId, editing) {
     if (this.mode === "db") {
-      await DB.saveResponse(m.dbId, pointId, answer, editing);
+      await DB.saveResponse(m.dbId, pointId, answer, editing, !editing || canEditResponse(editing));
       await this.refreshAfterWrite();
       return;
     }
@@ -221,7 +221,9 @@ const Store = {
 
   async deleteResponse(m, entry) {
     if (this.mode === "db") {
-      await DB.deleteResponse(entry.id);
+      // L'app sait si elle avait le droit : un refus malgré ce droit
+      // désigne la base, pas l'utilisateur.
+      await DB.deleteResponse(entry.id, canEditResponse(entry));
       await this.refreshAfterWrite();
       return;
     }
@@ -796,7 +798,7 @@ function renderDiag() {
 
   const run = async () => {
     out.innerHTML = `<p class="empty">Analyse en cours…</p>`;
-    const steps = await DB.diagnose();
+    const steps = await DB.diagnose(Store.team ? Store.team.id : null);
     report = steps.map((s) => `${s.ok ? "OK " : "KO "} ${s.label}${s.detail ? " : " + s.detail : ""}`).join("\n");
     out.innerHTML = `<ul class="player-list">${steps
       .map((s) => `<li><span>${s.ok ? "✔" : "✘"} ${esc(s.label)}</span></li>` +

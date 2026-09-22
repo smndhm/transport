@@ -50,6 +50,7 @@ dans `migrations/`, à exécuter dans l'ordre.
 | `0002_reponses_invitees.sql` | une réponse peut désormais porter un nom libre au lieu d'un profil, pour saisir la voiture d'un parent qui a répondu autrement |
 | `0003_ordre_des_voitures.sql` | ordre des réponses à un point de rdv, pour affecter les places aux voitures prioritaires |
 | `0004_suppression_equipe.sql` | droit de supprimer une équipe : sans cette règle, le DELETE n'efface rien et ne lève aucune erreur |
+| `0005_regles_des_reponses.sql` | recrée `responses_own` et `responses_organizer` : si l'une manque, l'organisateur ne peut plus toucher la réponse d'un autre, sans message d'erreur |
 
 ## Dédoublonnage de l'import : pourquoi pas de `ON CONFLICT`
 
