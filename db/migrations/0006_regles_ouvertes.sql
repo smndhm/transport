@@ -16,9 +16,17 @@
 -- La lecture ne change pas : il faut être membre, donc avoir reçu le
 -- lien d'invitation. C'est lui le vrai filtre, comme ?admin dans l'app.
 --
--- Il recouvre la migration 0005. Rejouable sans risque.
+-- Il recouvre les migrations 0004 et 0005. Rejouable sans risque.
 
 begin;
+
+-- Suppression d'une équipe (0004) : sans cette règle, le DELETE n'efface
+-- rien et ne lève aucune erreur — une équipe créée en double reste à vie
+-- dans le sélecteur. Elle emporte en cascade adhésions, matchs, points
+-- de rdv et réponses.
+drop policy if exists teams_delete on public.teams;
+create policy teams_delete on public.teams
+  for delete to authenticated using (public.is_team_organizer(id));
 
 -- Points de rdv : n'importe quel membre peut en poser un et le corriger.
 drop policy if exists points_write on public.meeting_points;
@@ -31,6 +39,9 @@ create policy points_write on public.meeting_points
 -- distinction d'auteur — chacun peut corriger la voiture d'un autre.
 drop policy if exists responses_own on public.responses;
 drop policy if exists responses_organizer on public.responses;
+-- Et la nouvelle elle-même : « create policy » n'a pas de variante
+-- « if not exists », donc sans ce drop le fichier ne se rejoue pas.
+drop policy if exists responses_write on public.responses;
 create policy responses_write on public.responses
   for all to authenticated
   using (public.is_team_member(public.match_team(match_id)))

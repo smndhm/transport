@@ -49,9 +49,9 @@ dans `migrations/`, à exécuter dans l'ordre.
 | `0001_create_team_cree_le_profil.sql` | `create_team` créait l'adhésion sans créer le profil de l'organisateur, ce qui faisait échouer la création d'équipe |
 | `0002_reponses_invitees.sql` | une réponse peut désormais porter un nom libre au lieu d'un profil, pour saisir la voiture d'un parent qui a répondu autrement |
 | `0003_ordre_des_voitures.sql` | ordre des réponses à un point de rdv, pour affecter les places aux voitures prioritaires |
-| `0004_suppression_equipe.sql` | droit de supprimer une équipe : sans cette règle, le DELETE n'efface rien et ne lève aucune erreur |
+| `0004_suppression_equipe.sql` | droit de supprimer une équipe : sans cette règle, le DELETE n'efface rien et ne lève aucune erreur — **recouverte par 0006** |
 | `0005_regles_des_reponses.sql` | recrée `responses_own` et `responses_organizer` : si l'une manque, l'organisateur ne peut plus toucher la réponse d'un autre, sans message d'erreur — **recouverte par 0006** |
-| `0006_regles_ouvertes.sql` | partage actuel : le coach garde matchs, équipe et adhésions ; tout membre pose un point de rdv et corrige n'importe quelle voiture |
+| `0006_regles_ouvertes.sql` | partage actuel : le coach garde matchs, équipe et adhésions ; tout membre pose un point de rdv et corrige n'importe quelle voiture. Contient aussi `teams_delete` (0004), donc **sur une base en service, 0003 puis 0006 suffisent** |
 
 ## Qui a le droit de quoi
 
@@ -88,6 +88,18 @@ nouveaux. L'index reste le garde-fou : si deux appareils importent en
 même temps, l'insertion perdante échoue en `23505` et l'app relit avant
 de réessayer. `db/test/import.sql` rejoue les cinq cas sur un vrai
 PostgreSQL.
+
+## Une migration doit se rejouer sans erreur
+
+`create policy` n'a pas de variante `if not exists` : chaque création
+doit être précédée de son `drop policy if exists`, **y compris pour une
+règle que le fichier vient d'introduire**. Sans cela, le fichier
+fonctionne une fois puis échoue — et comme tout est dans un `begin …
+commit`, l'échec annule aussi les créations qui avaient réussi avant
+lui. C'est ce qui a manqué à 0002 (`responses_identity`) puis à 0006
+(`responses_write`). Contrôle : appliquer le fichier deux fois de suite
+sur une base neuve, puis une troisième sur une base à laquelle il manque
+une seule des règles.
 
 ## Un DELETE refusé par RLS ne lève pas d'erreur
 
