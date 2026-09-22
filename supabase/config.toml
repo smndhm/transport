@@ -19,6 +19,14 @@
 
 project_id = "nfucxwoylzvztqdifldo"
 
+# Réglage de l'intégration GitHub, côté tableau de bord : le champ
+# « Working directory » demande le dossier QUI CONTIENT supabase/, donc
+# son parent. Ce dossier étant à la racine du dépôt, la valeur est la
+# racine — champ vide, ou « . ». Y mettre « supabase » fait chercher
+# supabase/supabase/migrations/ : aucune migration trouvée, et le
+# déploiement annonce sereinement « All migrations are up to date »
+# sans rien appliquer.
+
 [auth]
 enabled = true
 

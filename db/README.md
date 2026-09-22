@@ -31,7 +31,12 @@ Supabase tient la liste dans `supabase_migrations.schema_migrations`.
 | `20260922190000_schema_initial.sql` | tout le schéma : tables, vues, fonctions, règles d'accès. C'est la référence |
 | `20260922190100_temps_reel.sql` | publication temps réel sur `matches`, `meeting_points` et `responses` |
 
-`supabase/config.toml` désigne le projet. Attention à ne pas lui prêter
+`supabase/config.toml` désigne le projet. Côté tableau de bord, le champ
+**« Working directory »** de l'intégration attend le dossier *qui
+contient* `supabase/` — ici la racine du dépôt, donc un champ vide.
+Y mettre `supabase` fait chercher `supabase/supabase/migrations/` :
+aucune migration trouvée, et le déploiement annonce « All migrations are
+up to date » sans rien appliquer ni rien signaler. Attention à ne pas lui prêter
 plus de pouvoir qu'il n'en a : sur la branche de production, le
 déploiement annonce « Skipping configuration for protected branch » et
 n'applique que les migrations. Les réglages qu'il décrit — au premier
