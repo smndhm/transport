@@ -99,6 +99,9 @@ button {
 
 .btn-danger { background: none; color: var(--red); font-weight: 400; font-size: 0.85rem; }
 
+/* Une écriture est en cours : les boutons ne répondent plus, et ça se voit. */
+button:disabled { opacity: 0.5; cursor: default; }
+
 .btn-link { background: none; color: var(--primary); padding: 4px 0; font-weight: 400; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; }

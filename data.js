@@ -141,6 +141,32 @@ const DB = (() => {
     return data;
   }
 
+  // Supprime une équipe et, en cascade, ses matchs, points de rdv,
+  // réponses et adhésions.
+  //
+  // La règle qui l'autorise arrive avec la migration 0004. Sans elle,
+  // PostgreSQL ne lève pas d'erreur : la ligne est simplement invisible
+  // pour le DELETE, qui n'efface rien. D'où la vérification de ce qui a
+  // réellement été supprimé plutôt qu'un test sur l'erreur.
+  //
+  // En repli on vide l'équipe — matchs puis adhésions, ce que les règles
+  // en place permettent déjà à l'organisateur : elle disparaît de toutes
+  // les listes, seule sa ligne subsiste, invisible faute de membre.
+  async function deleteTeam(teamId) {
+    await ready();
+    const { data, error } = await sb().from("teams").delete().eq("id", teamId).select("id");
+    if (error) throw error;
+    if (data && data.length) return "supprimée";
+
+    const { error: matchErr } = await sb().from("matches").delete().eq("team_id", teamId);
+    if (matchErr) throw matchErr;
+    const { data: left, error: memberErr } = await sb()
+      .from("team_members").delete().eq("team_id", teamId).select("profile_id");
+    if (memberErr) throw memberErr;
+    if (!left || !left.length) throw new Error("la base a refusé la suppression");
+    return "vidée";
+  }
+
   // Renvoie l'id de l'équipe rejointe, ou lève si le lien est invalide.
   async function joinTeam(token, displayName) {
     await ready();
@@ -478,7 +504,7 @@ const DB = (() => {
 
   return {
     enabled, ready, me, diagnose, testCreateTeam, fmt,
-    myTeams, createTeam, joinTeam, setDisplayName,
+    myTeams, createTeam, deleteTeam, joinTeam, setDisplayName,
     loadTeam, supportsOrdering, saveMatch, deleteMatch, importMatches, saveResponse, deleteResponse, setResponsePositions,
     watch, cacheRead, cacheWrite,
   };

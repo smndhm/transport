@@ -483,7 +483,16 @@ function isPast(match) {
 
 // Exécute une action distante en signalant l'échec plutôt qu'en le
 // laissant passer silencieusement.
+// Une écriture en cours ne doit pas pouvoir être relancée : sur un
+// réseau lent, rien ne bouge à l'écran et on retape sur le bouton — trois
+// tapes sur « Créer l'équipe » créaient trois équipes. Les boutons sont
+// désactivés le temps de l'aller-retour, ce qui se voit aussi.
+let busy = false;
 async function withBusy(fn, errorMsg) {
+  if (busy) return;
+  busy = true;
+  const frozen = [...document.querySelectorAll("#app button")].filter((b) => !b.disabled);
+  frozen.forEach((b) => { b.disabled = true; });
   try {
     await fn();
   } catch (e) {
@@ -491,6 +500,11 @@ async function withBusy(fn, errorMsg) {
     const text = (errorMsg || "Erreur") + describeError(e);
     toast(text);
     showError(text);
+  } finally {
+    busy = false;
+    // Un rendu a pu remplacer l'écran entre-temps : on ne réactive que
+    // les boutons encore présents.
+    frozen.forEach((b) => { if (b.isConnected) b.disabled = false; });
   }
 }
 
@@ -655,6 +669,9 @@ function teamHeader(actions) {
       ${legacyAdmin ? `<button class="btn-link" id="t-diag">🩺 Diagnostic</button>` : ""}
       ${previewToggle()}
     </div>
+    ${isAdmin ? `<div class="section-actions">
+      <button class="btn-danger" id="t-del">🗑 Supprimer cette équipe</button>
+    </div>` : ""}
   </div>`;
 }
 
@@ -669,18 +686,32 @@ function previewToggle() {
     : `<button class="btn-link" id="t-preview">👁 Voir comme un parent</button>`;
 }
 
+// Deux équipes du même nom, c'est presque toujours un bouton tapé deux
+// fois : on demande confirmation plutôt que d'empêcher (une entente peut
+// légitimement avoir deux groupes homonymes).
+function confirmDuplicate(name) {
+  const twin = Store.teams.find((t) => t.name.trim().toLowerCase() === name.trim().toLowerCase());
+  if (!twin) return true;
+  return confirm(`Une équipe « ${twin.name} » existe déjà.\n\nEn créer une seconde du même nom ?`);
+}
+
+function createTeamNamed(name) {
+  if (!confirmDuplicate(name)) return;
+  withBusy(async () => {
+    await DB.createTeam(name, null, myName || null);
+    await Store.loadTeams();
+    await Store.reload();
+    renderList();
+  }, "Création impossible");
+}
+
 function bindTeamHeader() {
   const create = document.getElementById("t-create");
   if (create) {
     create.onclick = () => {
       const name = document.getElementById("t-name").value.trim();
       if (!name) return toast("Donnez un nom à l'équipe");
-      withBusy(async () => {
-        await DB.createTeam(name, null, myName || null);
-        await Store.loadTeams();
-        await Store.reload();
-        renderList();
-      }, "Création impossible");
+      createTeamNamed(name);
     };
   }
   const sw = document.getElementById("t-switch");
@@ -690,12 +721,24 @@ function bindTeamHeader() {
   if (nw) nw.onclick = () => {
     const name = prompt("Nom de la nouvelle catégorie (ex : U15) :");
     if (!name || !name.trim()) return;
+    createTeamNamed(name.trim());
+  };
+
+  const del = document.getElementById("t-del");
+  if (del) del.onclick = () => {
+    const n = state.matches.length;
+    const quoi = n ? `${n} match${n > 1 ? "s" : ""} et toutes les réponses` : "aucun match";
+    if (!confirm(`Supprimer l'équipe « ${Store.team.name} » ?\n\n`
+      + `Cela efface ${quoi}. Les parents ne la verront plus.\nC'est définitif.`)) return;
     withBusy(async () => {
-      await DB.createTeam(name.trim(), null, myName || null);
+      const how = await DB.deleteTeam(Store.team.id);
       await Store.loadTeams();
       await Store.reload();
       renderList();
-    }, "Création impossible");
+      toast(how === "supprimée"
+        ? "Équipe supprimée"
+        : "Équipe vidée et retirée des listes (migration 0004 non passée)");
+    }, "Suppression impossible");
   };
 
   const prev = document.getElementById("t-preview");

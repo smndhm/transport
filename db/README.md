@@ -49,6 +49,7 @@ dans `migrations/`, à exécuter dans l'ordre.
 | `0001_create_team_cree_le_profil.sql` | `create_team` créait l'adhésion sans créer le profil de l'organisateur, ce qui faisait échouer la création d'équipe |
 | `0002_reponses_invitees.sql` | une réponse peut désormais porter un nom libre au lieu d'un profil, pour saisir la voiture d'un parent qui a répondu autrement |
 | `0003_ordre_des_voitures.sql` | ordre des réponses à un point de rdv, pour affecter les places aux voitures prioritaires |
+| `0004_suppression_equipe.sql` | droit de supprimer une équipe : sans cette règle, le DELETE n'efface rien et ne lève aucune erreur |
 
 ## Dédoublonnage de l'import : pourquoi pas de `ON CONFLICT`
 
@@ -64,6 +65,15 @@ nouveaux. L'index reste le garde-fou : si deux appareils importent en
 même temps, l'insertion perdante échoue en `23505` et l'app relit avant
 de réessayer. `db/test/import.sql` rejoue les cinq cas sur un vrai
 PostgreSQL.
+
+## Un DELETE refusé par RLS ne lève pas d'erreur
+
+Pour un `INSERT` ou un `UPDATE`, une règle violée renvoie `42501`. Pour
+un `SELECT` ou un `DELETE`, non : les lignes non couvertes par une règle
+sont simplement invisibles, et le `DELETE` efface zéro ligne en
+annonçant un succès. L'app ne teste donc pas l'erreur mais ce qui a
+réellement été supprimé (`.delete().select()`), sans quoi elle
+annoncerait des suppressions qui n'ont pas eu lieu.
 
 ## Vérifier le schéma avant de l'appliquer
 

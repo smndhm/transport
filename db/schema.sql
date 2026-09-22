@@ -274,6 +274,9 @@ create policy teams_read on public.teams
   for select to authenticated using (public.is_team_member(id));
 create policy teams_write on public.teams
   for update to authenticated using (public.is_team_organizer(id)) with check (public.is_team_organizer(id));
+-- La suppression emporte en cascade adhésions, matchs, points et réponses.
+create policy teams_delete on public.teams
+  for delete to authenticated using (public.is_team_organizer(id));
 
 create policy members_read on public.team_members
   for select to authenticated using (public.is_team_member(team_id));

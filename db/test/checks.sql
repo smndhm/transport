@@ -118,4 +118,25 @@ select p.display_name, r.meeting_point_id is null as "détaché"
 from public.responses r join public.profiles p on p.id = r.profile_id
 where r.match_id = 'aaaaaaaa-0000-0000-0000-000000000001' order by p.display_name;
 
+-- ---- Suppression d'une équipe ---------------------------------------
+-- Une équipe en double doit pouvoir disparaître, avec tout ce qui en
+-- dépend, et seulement à la main de son organisateur.
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+with d as (delete from public.teams where id = :'team' returning id)
+select 'lignes supprimées par le parent : ' || count(*) as "12. un parent ne supprime pas l'équipe" from d;
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+with d as (delete from public.teams where id = :'team' returning id)
+select 'lignes supprimées par l''organisateur : ' || count(*) as "13. l'organisateur supprime son équipe" from d;
+
+-- Compté hors RLS : une ligne invisible n'est pas une ligne supprimée.
+reset role;
+select 'équipes : ' || (select count(*) from public.teams)
+    || ' · adhésions : ' || (select count(*) from public.team_members)
+    || ' · matchs : ' || (select count(*) from public.matches)
+    || ' · points : ' || (select count(*) from public.meeting_points)
+    || ' · réponses : ' || (select count(*) from public.responses)
+  as "14. la cascade a tout emporté";
+
 rollback;
