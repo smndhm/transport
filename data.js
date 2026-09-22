@@ -350,6 +350,8 @@ const DB = (() => {
 
   // ---------- Réponses ----------
 
+  const REFUS = "cette réponse n'est pas la vôtre — seul son auteur ou l'organisateur peut la modifier";
+
   async function saveResponse(matchId, pointId, answer, existing) {
     await ready();
     const payload = {
@@ -364,8 +366,14 @@ const DB = (() => {
     if (existing && existing.id) {
       // Correction d'une réponse existante : on cible la ligne, et on
       // laisse renommer si c'est une réponse saisie pour quelqu'un.
+      // Comme pour la suppression, un UPDATE sur une ligne non couverte
+      // par les règles ne touche rien sans lever d'erreur : on vérifie.
       if (existing.isGuest) payload.guest_name = answer.name;
-      q = sb().from("responses").update(payload).eq("id", existing.id);
+      const { data, error: upErr } = await sb()
+        .from("responses").update(payload).eq("id", existing.id).select("id");
+      if (upErr) throw upErr;
+      if (!data || !data.length) throw new Error(REFUS);
+      return;
     } else if (answer.asGuest) {
       // Réponse au nom de quelqu'un d'autre : pas de profil, un nom libre.
       q = sb().from("responses").insert({ ...payload, guest_name: answer.name });
@@ -391,11 +399,17 @@ const DB = (() => {
     }
   }
 
+  // Une ligne que les règles d'accès ne couvrent pas n'est pas refusée :
+  // elle est invisible. Le DELETE n'efface alors rien et n'annonce aucune
+  // erreur — l'app croyait avoir supprimé. On regarde donc ce qui a
+  // réellement disparu.
   async function deleteResponse(id) {
     await ready();
-    const { error } = await sb().from("responses").delete().eq("id", id);
+    const { data, error } = await sb().from("responses").delete().eq("id", id).select("id");
     if (error) throw error;
+    if (!data || !data.length) throw new Error(REFUS);
   }
+
 
   // ---------- Temps réel ----------
 

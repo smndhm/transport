@@ -72,8 +72,11 @@ Pour un `INSERT` ou un `UPDATE`, une règle violée renvoie `42501`. Pour
 un `SELECT` ou un `DELETE`, non : les lignes non couvertes par une règle
 sont simplement invisibles, et le `DELETE` efface zéro ligne en
 annonçant un succès. L'app ne teste donc pas l'erreur mais ce qui a
-réellement été supprimé (`.delete().select()`), sans quoi elle
-annoncerait des suppressions qui n'ont pas eu lieu.
+réellement été supprimé ou modifié (`.delete().select()`,
+`.update().select()`), sans quoi elle annoncerait des changements qui
+n'ont pas eu lieu. C'est vrai pour les équipes comme pour les réponses :
+un parent qui touche la réponse d'un autre ne reçoit aucune erreur, la
+ligne lui est simplement invisible.
 
 ## Vérifier le schéma avant de l'appliquer
 

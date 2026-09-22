@@ -107,6 +107,11 @@ select drives, seats from public.responses where profile_id = auth.uid();
 \echo '--- 9. Le parent modifie la réponse de l organisateur : 0 ligne touchée (RLS)'
 update public.responses set seats = 99 where profile_id = '11111111-1111-1111-1111-111111111111';
 
+\echo '--- 9 bis. Et il ne la supprime pas non plus : 0 ligne, sans erreur'
+with d as (delete from public.responses
+  where profile_id = '11111111-1111-1111-1111-111111111111' returning id)
+select count(*) as "lignes supprimées" from d;
+
 \echo '--- 10. L organisateur corrige la réponse du parent : doit réussir'
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 update public.responses set seats = 5 where profile_id = '22222222-2222-2222-2222-222222222222';

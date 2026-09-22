@@ -451,6 +451,13 @@ function spareHint(g) {
 
 // Une ligne de la liste des réponses. `spare` : places en trop au point
 // de départ — l'intention du conducteur ne s'affiche que dans ce cas.
+// Qui peut corriger ou supprimer une réponse : son auteur, celui qui l'a
+// saisie, et l'organisateur. Hors base, pas de comptes : tout est ouvert.
+function canEditResponse(p) {
+  if (Store.mode !== "db") return true;
+  return Boolean(isAdmin || p.mine);
+}
+
 function responseLine(p, idx, spare, used, move) {
   const seats = Number(p.seats) || 0;
   const tag = carMode(p) !== "no" && spare
@@ -467,8 +474,9 @@ function responseLine(p, idx, spare, used, move) {
   } else {
     detail = `🚗 ${seats} place${seats > 1 ? "s" : ""}${tag}`;
   }
-  return `<li data-edit="${idx}" style="cursor:pointer"><span>${move || ""}${esc(p.name)}</span>` +
-    `<span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
+  const editable = canEditResponse(p);
+  return `<li ${editable ? `data-edit="${idx}" style="cursor:pointer"` : ""}><span>${move || ""}${esc(p.name)}</span>` +
+    `<span class="player-status present">${detail}${editable ? ` <span class="match-meta">✏️</span>` : ""}</span></li>`;
 }
 
 function rdvLabel(r) {
@@ -1104,7 +1112,10 @@ function renderDetail(matchId, editIndex) {
     : accomp.findIndex((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
 
   const adding = editIndex === "new";
-  const editing = adding ? null : editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
+  let editing = adding ? null : editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
+  // Garde-fou : on n'ouvre pas en correction une réponse qu'on ne peut pas
+  // écrire — la base refuserait en silence.
+  if (editing && !canEditResponse(editing)) { editing = null; editIndex = null; }
   // Le formulaire s'affiche tant qu'on n'a pas répondu, ou à la demande.
   const showForm = editIndex != null || mineIdx < 0;
   const editingOther = !adding && editIndex != null && editIndex !== mineIdx;
@@ -1237,12 +1248,12 @@ function renderDetail(matchId, editIndex) {
     </div>`}
 
     ${rdvs.length
-      ? accomp.length ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""
+      ? accomp.some(canEditResponse) ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""
       : accomp.length
         ? `<h2>Réponses (${accomp.length})</h2>
            <div class="card"><ul class="player-list">${accomp
              .map((p, i) => responseLine(p, i, 0, null, "")).join("")}</ul></div>
-           <p class="match-meta">Touchez une réponse pour la corriger.</p>`
+           ${accomp.some(canEditResponse) ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""}`
         : `<p class="empty">Personne n'a encore répondu.</p>`}
 
     <div class="section-actions">
