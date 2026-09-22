@@ -104,13 +104,21 @@ select count(*) as "matchs visibles par le parent" from public.matches;
 update public.responses set drives = true, seats = 2 where profile_id = auth.uid();
 select drives, seats from public.responses where profile_id = auth.uid();
 
-\echo '--- 9. Le parent modifie la réponse de l organisateur : 0 ligne touchée (RLS)'
-update public.responses set seats = 99 where profile_id = '11111111-1111-1111-1111-111111111111';
-
-\echo '--- 9 bis. Et il ne la supprime pas non plus : 0 ligne, sans erreur'
-with d as (delete from public.responses
+\echo '--- 9. Le parent corrige la réponse du coach : doit réussir'
+with u as (update public.responses set seats = 6
   where profile_id = '11111111-1111-1111-1111-111111111111' returning id)
-select count(*) as "lignes supprimées" from d;
+select count(*) as "lignes corrigées" from u;
+
+\echo '--- 9 bis. Le parent pose un point de rdv oublié : doit réussir'
+insert into public.meeting_points (match_id, name, departure_time, players_expected)
+values ('aaaaaaaa-0000-0000-0000-000000000001', 'École du bourg', '13:15', 2);
+select count(*) as "points de rdv du match" from public.meeting_points
+where match_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+\echo '--- 9 ter. Mais il ne supprime pas le match : 0 ligne (RLS)'
+with d as (delete from public.matches
+  where id = 'aaaaaaaa-0000-0000-0000-000000000001' returning id)
+select count(*) as "matchs supprimés par le parent" from d;
 
 \echo '--- 10. L organisateur corrige la réponse du parent : doit réussir'
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';

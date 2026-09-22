@@ -286,6 +286,26 @@ const DB = (() => {
     }
   }
 
+  // Un parent peut poser un point de rdv oublié sans toucher au reste du
+  // match — qui, lui, reste au coach.
+  async function addMeetingPoint(matchId, point) {
+    await ready();
+    const { data: existing, error: readErr } = await sb()
+      .from("meeting_points").select("position").eq("match_id", matchId);
+    if (readErr) throw readErr;
+    const last = (existing || []).reduce((max, p) => Math.max(max, Number(p.position) || 0), 0);
+    const { data, error } = await sb().from("meeting_points").insert({
+      match_id: matchId,
+      name: point.place || "Point de rdv",
+      departure_time: point.time || null,
+      players_expected: Number(point.toTake) || 0,
+      position: last + 1,
+    }).select("id");
+    if (error) throw error;
+    if (!data || !data.length) throw refus();
+    return data[0].id;
+  }
+
   async function deleteMatch(matchId) {
     await ready();
     const { error } = await sb().from("matches").delete().eq("id", matchId);
@@ -350,14 +370,13 @@ const DB = (() => {
 
   // ---------- Réponses ----------
 
-  const REFUS = "cette réponse n'est pas la vôtre — seul son auteur ou l'organisateur peut la modifier";
-  // Quand l'app sait qu'on avait le droit, un refus de la base ne vient
-  // pas de l'utilisateur mais de règles d'accès incomplètes.
-  const REFUS_ANORMAL = "la base a refusé alors que vous en avez le droit — "
-    + "les règles d'accès aux réponses sont incomplètes (migration 0005 à exécuter)";
-  const refus = (allowed) => new Error(allowed ? REFUS_ANORMAL : REFUS);
+  // Depuis la migration 0006, tout membre d'une équipe peut corriger
+  // n'importe quelle réponse de cette équipe. Un refus ne vient donc plus
+  // de l'utilisateur : la base est en retard sur le code.
+  const refus = () => new Error("la base a refusé cette modification — "
+    + "ses règles d'accès ne sont pas à jour (migration 0006 à exécuter)");
 
-  async function saveResponse(matchId, pointId, answer, existing, allowed) {
+  async function saveResponse(matchId, pointId, answer, existing) {
     await ready();
     const payload = {
       match_id: matchId,
@@ -377,7 +396,7 @@ const DB = (() => {
       const { data, error: upErr } = await sb()
         .from("responses").update(payload).eq("id", existing.id).select("id");
       if (upErr) throw upErr;
-      if (!data || !data.length) throw refus(allowed);
+      if (!data || !data.length) throw refus();
       return;
     } else if (answer.asGuest) {
       // Réponse au nom de quelqu'un d'autre : pas de profil, un nom libre.
@@ -408,11 +427,11 @@ const DB = (() => {
   // elle est invisible. Le DELETE n'efface alors rien et n'annonce aucune
   // erreur — l'app croyait avoir supprimé. On regarde donc ce qui a
   // réellement disparu.
-  async function deleteResponse(id, allowed) {
+  async function deleteResponse(id) {
     await ready();
     const { data, error } = await sb().from("responses").delete().eq("id", id).select("id");
     if (error) throw error;
-    if (!data || !data.length) throw refus(allowed);
+    if (!data || !data.length) throw refus();
   }
 
 
@@ -538,12 +557,13 @@ const DB = (() => {
                 .eq("id", r.id).select("id");
               if (touched && touched.length) writable++;
             }
-            const role = team.role === "organizer" ? "organisateur" : "parent";
-            const mine = rs.filter((r) => r.profile_id === userId || r.created_by === userId).length;
-            add("Écriture des réponses", team.role === "organizer" ? writable === rs.length : writable >= mine,
-              writable + " modifiable(s) sur " + rs.length + " · " + mine + " à moi · rôle " + role
-              + (team.role === "organizer" && writable < rs.length
-                ? " — un organisateur devrait pouvoir tout modifier : règle responses_organizer absente (migration 0005)"
+            // Depuis 0006, tout membre écrit sur toute réponse de son
+            // équipe : un compte incomplet signale une base en retard.
+            const role = team.role === "organizer" ? "coach" : "parent";
+            add("Écriture des réponses", writable === rs.length,
+              writable + " modifiable(s) sur " + rs.length + " · rôle " + role
+              + (writable < rs.length
+                ? " — tout membre devrait pouvoir tout corriger : migration 0006 à exécuter"
                 : ""));
           }
         }
@@ -568,7 +588,7 @@ const DB = (() => {
   return {
     enabled, ready, me, diagnose, testCreateTeam, fmt,
     myTeams, createTeam, deleteTeam, joinTeam, setDisplayName,
-    loadTeam, supportsOrdering, saveMatch, deleteMatch, importMatches, saveResponse, deleteResponse, setResponsePositions,
+    loadTeam, supportsOrdering, saveMatch, deleteMatch, addMeetingPoint, importMatches, saveResponse, deleteResponse, setResponsePositions,
     watch, cacheRead, cacheWrite,
   };
 })();

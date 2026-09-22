@@ -184,7 +184,7 @@ const Store = {
 
   async saveResponse(m, answer, pointId, editing) {
     if (this.mode === "db") {
-      await DB.saveResponse(m.dbId, pointId, answer, editing, !editing || canEditResponse(editing));
+      await DB.saveResponse(m.dbId, pointId, answer, editing);
       await this.refreshAfterWrite();
       return;
     }
@@ -221,9 +221,7 @@ const Store = {
 
   async deleteResponse(m, entry) {
     if (this.mode === "db") {
-      // L'app sait si elle avait le droit : un refus malgré ce droit
-      // désigne la base, pas l'utilisateur.
-      await DB.deleteResponse(entry.id, canEditResponse(entry));
+      await DB.deleteResponse(entry.id);
       await this.refreshAfterWrite();
       return;
     }
@@ -453,13 +451,6 @@ function spareHint(g) {
 
 // Une ligne de la liste des réponses. `spare` : places en trop au point
 // de départ — l'intention du conducteur ne s'affiche que dans ce cas.
-// Qui peut corriger ou supprimer une réponse : son auteur, celui qui l'a
-// saisie, et l'organisateur. Hors base, pas de comptes : tout est ouvert.
-function canEditResponse(p) {
-  if (Store.mode !== "db") return true;
-  return Boolean(isAdmin || p.mine);
-}
-
 function responseLine(p, idx, spare, used, move) {
   const seats = Number(p.seats) || 0;
   const tag = carMode(p) !== "no" && spare
@@ -476,9 +467,10 @@ function responseLine(p, idx, spare, used, move) {
   } else {
     detail = `🚗 ${seats} place${seats > 1 ? "s" : ""}${tag}`;
   }
-  const editable = canEditResponse(p);
-  return `<li ${editable ? `data-edit="${idx}" style="cursor:pointer"` : ""}><span>${move || ""}${esc(p.name)}</span>` +
-    `<span class="player-status present">${detail}${editable ? ` <span class="match-meta">✏️</span>` : ""}</span></li>`;
+  // Toute réponse est corrigeable par n'importe quel membre de l'équipe :
+  // c'est un covoiturage entre parents, pas un registre.
+  return `<li data-edit="${idx}" style="cursor:pointer"><span>${move || ""}${esc(p.name)}</span>` +
+    `<span class="player-status present">${detail} <span class="match-meta">✏️</span></span></li>`;
 }
 
 function rdvLabel(r) {
@@ -1114,10 +1106,7 @@ function renderDetail(matchId, editIndex) {
     : accomp.findIndex((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
 
   const adding = editIndex === "new";
-  let editing = adding ? null : editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
-  // Garde-fou : on n'ouvre pas en correction une réponse qu'on ne peut pas
-  // écrire — la base refuserait en silence.
-  if (editing && !canEditResponse(editing)) { editing = null; editIndex = null; }
+  const editing = adding ? null : editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
   // Le formulaire s'affiche tant qu'on n'a pas répondu, ou à la demande.
   const showForm = editIndex != null || mineIdx < 0;
   const editingOther = !adding && editIndex != null && editIndex !== mineIdx;
@@ -1248,14 +1237,17 @@ function renderDetail(matchId, editIndex) {
     ${showForm ? "" : `<div class="section-actions">
       <button class="btn-secondary" id="r-add">➕ Ajouter une voiture</button>
     </div>`}
+    ${!isAdmin && Store.mode === "db" ? `<div class="section-actions">
+      <button class="btn-link" id="p-add">➕ Ajouter un point de rdv</button>
+    </div>` : ""}
 
     ${rdvs.length
-      ? accomp.some(canEditResponse) ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""
+      ? accomp.length ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""
       : accomp.length
         ? `<h2>Réponses (${accomp.length})</h2>
            <div class="card"><ul class="player-list">${accomp
              .map((p, i) => responseLine(p, i, 0, null, "")).join("")}</ul></div>
-           ${accomp.some(canEditResponse) ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""}`
+           <p class="match-meta">Touchez une réponse pour la corriger.</p>`
         : `<p class="empty">Personne n'a encore répondu.</p>`}
 
     <div class="section-actions">
@@ -1301,6 +1293,30 @@ function renderDetail(matchId, editIndex) {
   });
   const addBtn = document.getElementById("r-add");
   if (addBtn) addBtn.onclick = () => renderDetail(matchId, "new");
+
+  // « 13h15 », « 13:15 » ou « 1315 » : on accepte, la base veut HH:MM.
+  const asTime = (v) => {
+    const d = (v || "").replace(/\D/g, "");
+    if (d.length < 3) return "";
+    const h = d.slice(0, d.length - 2), min = d.slice(-2);
+    if (Number(h) > 23 || Number(min) > 59) return "";
+    return String(h).padStart(2, "0") + ":" + min;
+  };
+
+  // Un point de rdv oublié n'a pas à attendre le coach.
+  const pAdd = document.getElementById("p-add");
+  if (pAdd) pAdd.onclick = () => {
+    const place = prompt("Lieu du point de rdv (ex : Parking du gymnase) :");
+    if (!place || !place.trim()) return;
+    const time = prompt("Heure de départ (ex : 13:15) — laissez vide si vous ne savez pas :") || "";
+    const toTake = prompt("Combien de joueurs à prendre à ce point ? (0 si vous ne savez pas)") || "0";
+    withBusy(async () => {
+      await DB.addMeetingPoint(m.dbId, { place: place.trim(), time: asTime(time), toTake });
+      await Store.refreshAfterWrite();
+      toast("Point de rdv ajouté ✔");
+      rerender();
+    }, "Ajout impossible");
+  };
   const delBtn = document.getElementById("r-delete");
   if (delBtn) delBtn.onclick = () => {
     if (!confirm(`Supprimer la réponse de ${editing.name} ?`)) return;

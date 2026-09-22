@@ -283,38 +283,30 @@ create policy members_read on public.team_members
 create policy members_admin on public.team_members
   for all to authenticated using (public.is_team_organizer(team_id)) with check (public.is_team_organizer(team_id));
 
--- Matchs et points de rdv : lecture pour les membres, écriture pour
--- l'organisateur seul — le mode ?admin devient une vraie autorisation.
+-- Matchs : le calendrier appartient au coach. Lui seul en crée, en
+-- modifie et en supprime — le mode ?admin devient une vraie autorisation.
 create policy matches_read on public.matches
   for select to authenticated using (public.is_team_member(team_id));
 create policy matches_write on public.matches
   for all to authenticated using (public.is_team_organizer(team_id)) with check (public.is_team_organizer(team_id));
 
+-- Points de rdv : n'importe quel membre peut en poser un et le corriger.
+-- Un point oublié n'a pas à attendre le coach.
 create policy points_read on public.meeting_points
   for select to authenticated using (public.is_team_member(public.match_team(match_id)));
 create policy points_write on public.meeting_points
-  for all to authenticated using (public.is_team_organizer(public.match_team(match_id)))
-  with check (public.is_team_organizer(public.match_team(match_id)));
+  for all to authenticated using (public.is_team_member(public.match_team(match_id)))
+  with check (public.is_team_member(public.match_team(match_id)));
 
--- Réponses : tout le monde voit celles de son équipe ; on modifie la
--- sienne, et l'organisateur peut corriger celle d'un autre.
+-- Réponses : tout membre de l'équipe voit et corrige n'importe quelle
+-- voiture, y compris celle d'un autre parent. C'est un covoiturage entre
+-- familles, pas un registre : le filtre, c'est le lien d'invitation.
 create policy responses_read on public.responses
   for select to authenticated using (public.is_team_member(public.match_team(match_id)));
--- Chacun gère sa réponse et celles qu'il a saisies pour d'autres.
-create policy responses_own on public.responses
+create policy responses_write on public.responses
   for all to authenticated
-  using (
-    public.is_team_member(public.match_team(match_id))
-    and (profile_id = auth.uid() or created_by = auth.uid())
-  )
-  with check (
-    public.is_team_member(public.match_team(match_id))
-    and (profile_id = auth.uid() or (profile_id is null and created_by = auth.uid()))
-  );
-create policy responses_organizer on public.responses
-  for all to authenticated
-  using (public.is_team_organizer(public.match_team(match_id)))
-  with check (public.is_team_organizer(public.match_team(match_id)));
+  using (public.is_team_member(public.match_team(match_id)))
+  with check (public.is_team_member(public.match_team(match_id)));
 
 -- ---------------------------------------------------------------- --
 -- Rejoindre une équipe depuis un lien partagé
