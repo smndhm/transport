@@ -372,8 +372,24 @@ function icsEpoch(v) {
 }
 
 // Id stable dérivé de l'UID iCal : réimporter ne crée pas de doublon.
+// L'identité d'un événement du calendrier : son UID iCal, ou à défaut
+// l'adversaire et la date. data.js range la même valeur en base.
+function eventUid(ev) {
+  return ev.uid || ev.summary + ev.start.date;
+}
+
+// Un événement déjà importé : en base on compare l'uid Kalisport rangé
+// sur le match, en local l'identifiant dérivé de ce même uid.
+function isKnownEvent(ev) {
+  if (Store.mode === "db") {
+    const uid = eventUid(ev);
+    return state.matches.some((m) => m.externalUid === uid);
+  }
+  return state.matches.some((m) => m.id === icsId(ev));
+}
+
 function icsId(ev) {
-  const s = ev.uid || ev.summary + ev.start.date;
+  const s = eventUid(ev);
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return "ics" + (h >>> 0).toString(36);
@@ -951,7 +967,7 @@ function renderImport() {
       <ul class="player-list">${events
         .map((ev, i) => {
           const future = ev.start.date >= today;
-          const known = state.matches.some((m) => m.id === icsId(ev));
+          const known = isKnownEvent(ev);
           return `<li><label style="display:flex; gap:8px; align-items:center; font-weight:400; margin:0; width:100%;">
             <input type="checkbox" data-ev="${i}" style="width:auto" ${future && !known ? "checked" : ""}>
             <span style="flex:1">${esc(ev.summary)}<br>
@@ -970,7 +986,9 @@ function renderImport() {
       const picked = checked.map((box) => events[Number(box.dataset.ev)]);
       withBusy(async () => {
         const n = await Store.importEvents(picked);
-        toast(`${n} match${n > 1 ? "s" : ""} importé${n > 1 ? "s" : ""} ✔`);
+        toast(n
+          ? `${n} match${n > 1 ? "s" : ""} importé${n > 1 ? "s" : ""} ✔`
+          : "Rien de nouveau — ces matchs étaient déjà dans la liste");
         renderList();
       }, "Import impossible");
     };

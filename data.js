@@ -266,23 +266,58 @@ const DB = (() => {
     if (error) throw error;
   }
 
-  // Importe des événements Kalisport sans recréer ceux déjà présents :
-  // l'index unique sur (équipe, source, uid) fait foi côté base.
-  async function importMatches(teamId, events) {
-    await ready();
-    const rows = events.map((ev) => ({
-      team_id: teamId,
-      opponent: ev.summary,
-      match_date: ev.start.date,
-      kickoff_time: ev.start.time || null,
-      venue: ev.location || null,
-      external_source: "kalisport",
-      external_uid: ev.uid || ev.summary + ev.start.date,
-    }));
+  // Les uid déjà importés pour cette équipe.
+  async function knownUids(teamId) {
     const { data, error } = await sb()
       .from("matches")
-      .upsert(rows, { onConflict: "team_id,external_source,external_uid", ignoreDuplicates: true })
-      .select("id");
+      .select("external_uid")
+      .eq("team_id", teamId)
+      .eq("external_source", "kalisport")
+      .not("external_uid", "is", null);
+    if (error) throw error;
+    return new Set((data || []).map((r) => r.external_uid));
+  }
+
+  // Importe des événements Kalisport sans recréer ceux déjà présents.
+  //
+  // Le dédoublonnage se fait ici et pas par un ON CONFLICT : l'index qui
+  // protège l'import est partiel (« where external_uid is not null ») et
+  // PostgreSQL refuse de s'en servir pour un ON CONFLICT sans qu'on lui
+  // répète la condition — ce que PostgREST ne sait pas envoyer, d'où le
+  // 42P10. On lit donc les uid connus et on n'insère que les nouveaux ;
+  // l'index reste le garde-fou si deux imports se croisent.
+  async function importMatches(teamId, events) {
+    await ready();
+    const seen = new Set();
+    const rows = [];
+    for (const ev of events) {
+      const uid = ev.uid || ev.summary + ev.start.date;
+      // Le même uid deux fois dans le fichier : une seule ligne.
+      if (seen.has(uid)) continue;
+      seen.add(uid);
+      rows.push({
+        team_id: teamId,
+        opponent: ev.summary,
+        match_date: ev.start.date,
+        kickoff_time: ev.start.time || null,
+        venue: ev.location || null,
+        external_source: "kalisport",
+        external_uid: uid,
+      });
+    }
+
+    let known = await knownUids(teamId);
+    let fresh = rows.filter((r) => !known.has(r.external_uid));
+    if (!fresh.length) return 0;
+
+    let { data, error } = await sb().from("matches").insert(fresh).select("id");
+    if (error && error.code === "23505") {
+      // Un autre appareil a importé entre-temps : on relit et on réessaie.
+      known = await knownUids(teamId);
+      fresh = fresh.filter((r) => !known.has(r.external_uid));
+      if (!fresh.length) return 0;
+      ({ data, error } = await sb().from("matches").insert(fresh).select("id"));
+    }
     if (error) throw error;
     return (data || []).length;
   }

@@ -50,6 +50,21 @@ dans `migrations/`, à exécuter dans l'ordre.
 | `0002_reponses_invitees.sql` | une réponse peut désormais porter un nom libre au lieu d'un profil, pour saisir la voiture d'un parent qui a répondu autrement |
 | `0003_ordre_des_voitures.sql` | ordre des réponses à un point de rdv, pour affecter les places aux voitures prioritaires |
 
+## Dédoublonnage de l'import : pourquoi pas de `ON CONFLICT`
+
+`matches_external_uid_key` est un index **partiel** (`where external_uid
+is not null`) : il ne contraint que les matchs importés, pas ceux créés
+à la main. PostgreSQL n'accepte d'utiliser un index partiel pour un
+`ON CONFLICT` que si la requête répète sa condition — ce que PostgREST
+ne sait pas envoyer, d'où l'erreur `42P10` (« no unique or exclusion
+constraint matching the ON CONFLICT specification ») au moindre import.
+
+L'app lit donc les `external_uid` déjà présents et n'insère que les
+nouveaux. L'index reste le garde-fou : si deux appareils importent en
+même temps, l'insertion perdante échoue en `23505` et l'app relit avant
+de réessayer. `db/test/import.sql` rejoue les cinq cas sur un vrai
+PostgreSQL.
+
 ## Vérifier le schéma avant de l'appliquer
 
 `db/test/run.sh` monte un PostgreSQL jetable, applique le schéma et
