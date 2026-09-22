@@ -2,48 +2,68 @@
 
 Petite app pour organiser les déplacements aux matchs : qui vient, qui conduit, combien de places — sans se perdre dans les fils WhatsApp.
 
-**POC — itération 2.**
+En service sur une vraie base, avec synchronisation en direct entre les téléphones.
 
-## Fonctionnalités actuelles
+## Comment ça s'utilise
 
-- Deux usages : l'**organisateur** ouvre l'app avec `?admin` dans l'URL (création de match, import Kalisport, modification, suppression) et partage les liens ; les **parents** ouvrent le lien reçu, le match s'ajoute à leur liste et ils n'ont qu'à répondre. Ce n'est pas une sécurité, juste un paramètre non communiqué — le mode est mémorisé sur l'appareil. Un bouton **« 👁 Voir comme un parent »** le met en pause pour vérifier ce que l'équipe voit (et **« ↩︎ Revenir en organisateur »** le rétablit) ; `?admin=0` dans l'URL fonctionne toujours
-- L'organisateur crée, renomme et **supprime** ses catégories ; une équipe supprimée emporte ses matchs et ses réponses. Créer deux catégories du même nom demande confirmation, et un bouton déjà tapé ne repart pas une seconde fois tant que l'enregistrement est en cours
-- Hiérarchie : catégorie (U11, U13…) → matchs → points de rdv. La liste des matchs est regroupée par catégorie ; chaque match porte une heure d'arrivée sur place (pour ceux qui s'y rendent seuls) et un ou plusieurs points de rdv — plusieurs dans le cas d'une entente
-- Créer un match à l'extérieur (catégorie, adversaire, date/heure, lieu, heure sur place, et autant de points de rdv que nécessaire avec pour chacun son heure de départ et son nombre de joueurs à prendre) — l'app ne sert que pour les déplacements
-- Importer les matchs depuis Kalisport : lien d'export du calendrier (webcal:// ou https://), fichier .ics ou copier-coller, avec détection des doublons au ré-import
-- Si le lien du calendrier est accepté par le serveur (CORS), il est mémorisé et un bouton « Actualiser » synchronise les matchs en un clic
-- Une réponse par accompagnateur : nom, je conduis (oui/non), et si oui le nombre de places (sans compter son enfant joueur) et ce qu'il fait si sa voiture n'est finalement pas utile (venir quand même ou rester) ; le point de départ est demandé seulement quand le match en compte plusieurs
-- Le coach garde le calendrier (créer, modifier, supprimer un match) et l'équipe. Tout le reste est ouvert aux parents de l'équipe : poser un point de rdv oublié, ajouter une voiture, corriger ou supprimer n'importe laquelle — y compris celle d'un autre. C'est un covoiturage entre familles, pas un registre : le filtre, c'est le lien d'invitation
-- Les infos voiture sont mémorisées d'un match sur l'autre ; une fois répondu, le formulaire laisse place à un bouton « Modifier ma réponse », et chaque réponse de la liste s'édite d'un simple toucher
-- Récapitulatif : voitures, et places libres vs personnes à prendre (les joueurs annoncés + les accompagnateurs sans voiture) — vert dès que les joueurs sont couverts, avec une note si des accompagnateurs restent à caser, plus un bilan par point de rdv qui signale les places en trop, nomme les conducteurs prêts à laisser leur voiture et liste les réponses rattachées à ce point
-- Partage du sondage par lien (à coller dans WhatsApp) — pas de compte, pas de serveur
+Le **coach** ouvre l'app avec `?admin` dans l'URL, crée sa catégorie (U11, U13…) et partage **un seul lien d'invitation** aux parents. Ce lien fait tout : il inscrit l'appareil dans l'équipe, et la liste des matchs apparaît. Plus rien à repartager ensuite — les réponses de chacun arrivent en direct chez les autres.
 
-## Comment ça marche (mode POC)
+Le paramètre `?admin` n'est pas une sécurité, juste une adresse non communiquée ; le mode est mémorisé sur l'appareil. Le bouton **« 👁 Voir comme un parent »** le met en pause pour vérifier ce que l'équipe voit.
 
-App 100 % statique (HTML/CSS/JS vanilla, zéro dépendance, zéro build). Les données sont stockées dans le navigateur (`localStorage`). Le bouton **Partager** encode le sondage complet dans l'URL : la personne qui ouvre le lien récupère les réponses existantes et ajoute la sienne, puis repartage le lien mis à jour.
+### Qui peut quoi
 
-C'est le compromis assumé du POC : pas de synchro temps réel, le lien fait office de "base de données qui circule". Un vrai backend viendra dans une itération future.
+| | coach | parent |
+|---|---|---|
+| créer, modifier, supprimer un match | ✔ | ✘ |
+| créer, renommer, supprimer une catégorie | ✔ | ✘ |
+| poser et corriger un point de rdv | ✔ | ✔ |
+| ajouter, corriger, supprimer **n'importe quelle** voiture | ✔ | ✔ |
+
+Entre parents d'une même équipe, rien n'est verrouillé : c'est un covoiturage entre familles, pas un registre. Le vrai filtre est le lien d'invitation.
+
+## Ce que l'app sait faire
+
+- **Hiérarchie** catégorie → matchs → points de rdv. Chaque match porte une heure d'arrivée sur place (pour ceux qui s'y rendent seuls) et un ou plusieurs points de rdv — plusieurs dans le cas d'une entente — avec pour chacun son heure de départ et son nombre de joueurs à prendre. L'app ne sert que pour les matchs à l'extérieur
+- **Import Kalisport** : lien d'export du calendrier (`webcal://` ou `https://`), fichier `.ics` ou copier-coller, avec détection des matchs déjà importés. Si le serveur accepte le lien (CORS), il est mémorisé et un bouton « Actualiser » resynchronise en un clic
+- **Répondre en trois champs** : nom de l'accompagnateur, je conduis oui/non, et si oui le nombre de places **sans compter son enfant joueur**. Un parent sans voiture compte dans les personnes à prendre. Le point de départ n'est demandé que si le match a plusieurs rdv
+- **Trop de voitures ?** Le conducteur dit s'il vient quand même ou s'il peut rester au parking. Le coach ordonne les voitures avec ↑↓ ; les places sont affectées dans cet ordre jusqu'à couvrir le besoin, et une voiture au-delà s'affiche « non nécessaire »
+- **Répondre pour quelqu'un d'autre** : un parent qui a répondu par SMS, ou la seconde voiture d'une famille, se saisit depuis n'importe quel téléphone
+- **Récapitulatif** par match et par point de rdv : voitures, places libres contre personnes à prendre, places en trop, conducteurs prêts à laisser leur voiture. Vert dès que les joueurs sont couverts, avec une note si des accompagnateurs restent à caser
+- **Hors ligne** : la dernière vue connue reste lisible, et l'app dit clairement quand l'affichage n'est pas à jour plutôt que d'annoncer un succès en l'air
+
+## Comment c'est fait
+
+App 100 % statique — HTML/CSS/JS vanilla, zéro build, zéro dépendance côté code. Deux fichiers portent tout : `app.js` (les écrans) et `data.js` (la base).
+
+Les données vivent dans **Supabase** (PostgreSQL + PostgREST + temps réel). Pas de mot de passe : chaque appareil ouvre une session anonyme qui lui donne une identité stable, et les règles d'accès de la base s'appuient dessus. Le schéma, les règles et leur justification sont dans **[`db/README.md`](db/README.md)**.
+
+Si la base est injoignable, l'app bascule sur le stockage local et continue d'afficher la dernière version connue.
 
 ## Déploiement
 
-Déployé automatiquement sur **GitHub Pages** à chaque push (workflow `.github/workflows/deploy.yml`).
+Tout part de `main`, automatiquement :
 
-> Si le premier déploiement échoue : dans les réglages du dépôt, **Settings → Pages → Source → GitHub Actions**, puis relancer le workflow.
+| | où | déclencheur |
+|---|---|---|
+| l'app | GitHub Pages | `.github/workflows/deploy.yml` |
+| le schéma | Supabase | intégration GitHub, dossier `supabase/` |
 
 ## Développement local
 
-Aucun outillage nécessaire :
-
 ```bash
-# ouvrir index.html directement, ou :
-python3 -m http.server 8000
+python3 -m http.server 8000     # puis ouvrir http://localhost:8000/?admin
 ```
 
-## Pistes pour les prochaines itérations
+Pour valider une évolution du schéma sans toucher à la base en service :
 
-- [ ] Backend léger pour une vraie synchro des réponses (plus besoin de repartager le lien)
-- [ ] Affectation des passagers aux voitures
-- [ ] Heure et lieu de rendez-vous pour le départ
-- [ ] Notifications / relances des joueurs qui n'ont pas répondu
-- [ ] Liste de l'équipe pré-remplie
-- [ ] Synchro Kalisport automatique via GitHub Actions (lien iCal en secret du dépôt, plus besoin d'import manuel)
+```bash
+db/test/run.sh                  # PostgreSQL jetable, migrations + contrôles
+```
+
+## Pistes pour la suite
+
+- [ ] Affectation nominative des passagers aux voitures
+- [ ] Relances des familles qui n'ont pas répondu
+- [ ] Liste de l'équipe pré-remplie depuis Kalisport
+- [ ] Synchro Kalisport automatique (lien iCal en secret du dépôt, plus d'import manuel)
+- [ ] Trajet retour distinct de l'aller
