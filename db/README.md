@@ -106,6 +106,33 @@ même temps, l'insertion perdante échoue en `23505` et l'app relit avant
 de réessayer. `db/test/import.sql` rejoue les cinq cas sur un vrai
 PostgreSQL.
 
+## Une table sans GRANT est muette
+
+Depuis le 30 octobre 2026, Supabase n'accorde plus d'office l'accès à
+l'API aux nouvelles tables du schéma `public`. Une table créée sans
+`grant` existe, se remplit en SQL, et reste pourtant injoignable depuis
+l'app : `permission denied`.
+
+**Toute migration qui crée une table doit donc accorder ses droits**,
+dans le même fichier :
+
+```sql
+grant select, insert, update, delete on public.ma_table to authenticated;
+grant select, insert, update, delete on public.ma_table to service_role;
+```
+
+`anon` n'est pas servi : l'app ouvre une session anonyme avant toute
+requête, elle parle donc toujours en tant qu'`authenticated`, et aucune
+règle RLS ne vise `anon`.
+
+Un `grant` n'ouvre rien de plus : il donne accès à la table, les règles
+RLS décident ensuite ligne par ligne. Il faut les deux.
+
+`db/test/run.sh` n'accorde volontairement aucun droit sur nos tables —
+il ne fournit que ce que la plateforme fournit, l'accès aux schémas et à
+`auth.users`. Un `grant` oublié fait donc échouer le banc d'essai avec
+le même `permission denied` que la vraie base.
+
 ## Une migration doit se rejouer sans erreur
 
 `create policy` n'a pas de variante `if not exists` : chaque création

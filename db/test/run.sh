@@ -30,10 +30,11 @@ for m in "$TMP"/*_*.sql; do
 done
 # Rejouées une seconde fois : une migration doit être rejouable.
 for m in "$TMP"/*_*.sql; do run -q -v ON_ERROR_STOP=1 -f "$m" >/dev/null; done
-# Droits que Supabase accorde automatiquement au rôle authenticated.
-run -q -v ON_ERROR_STOP=1 -c "grant usage on schema auth, public to anon, authenticated;
-  grant select on auth.users to anon, authenticated;
-  grant select, insert, update, delete on all tables in schema public to authenticated;
-  grant execute on all functions in schema public to authenticated;"
+# Ce que la plateforme fournit, et elle seule : l'accès aux schémas et à
+# auth.users. Les droits sur NOS tables ne sont plus accordés d'office
+# depuis le 30 octobre 2026 — c'est aux migrations de les déclarer, donc
+# le banc d'essai ne les ajoute pas : il vérifie qu'elles le font.
+run -q -v ON_ERROR_STOP=1 -c "grant usage on schema auth, public to anon, authenticated, service_role;
+  grant select on auth.users to anon, authenticated;"
 cp db/test/checks.sql "$TMP/"; chmod 644 "$TMP/checks.sql"
 run -f "$TMP/checks.sql"
