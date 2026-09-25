@@ -1105,11 +1105,18 @@ function renderDetail(matchId, editIndex) {
     ? accomp.findIndex((p) => p.profileId && p.profileId === DB.me())
     : accomp.findIndex((p) => p.name.trim().toLowerCase() === myName.trim().toLowerCase());
 
+  // Trois façons d'ouvrir le formulaire : « mine » pour sa propre
+  // réponse, « new » pour celle de quelqu'un d'autre, un indice pour
+  // corriger une ligne existante. Fermé le reste du temps : on arrive
+  // sur le récapitulatif, pas sur un formulaire.
   const adding = editIndex === "new";
-  const editing = adding ? null : editIndex != null ? accomp[editIndex] : mineIdx >= 0 ? accomp[mineIdx] : null;
-  // Le formulaire s'affiche tant qu'on n'a pas répondu, ou à la demande.
-  const showForm = editIndex != null || mineIdx < 0;
-  const editingOther = !adding && editIndex != null && editIndex !== mineIdx;
+  const own = editIndex === "mine";
+  const editingIdx = adding || own ? null : editIndex;
+  const editing = adding ? null
+    : own ? (mineIdx >= 0 ? accomp[mineIdx] : null)
+    : editingIdx != null ? accomp[editingIdx] : null;
+  const showForm = editIndex != null;
+  const editingOther = editingIdx != null && editingIdx !== mineIdx;
   // Une réponse « invitée » n'appartient à aucun compte : son nom est libre.
   const asGuest = adding || (editing ? (Store.mode === "db" ? Boolean(editing.isGuest) : editingOther) : false);
 
@@ -1200,7 +1207,8 @@ function renderDetail(matchId, editIndex) {
 
     ${showForm ? `
     <div class="card">
-      <h2 style="margin-top:0">${adding ? "Ajouter une réponse" : editingOther || asGuest ? "Modifier la réponse" : "Ma réponse"}</h2>
+      <h2 style="margin-top:0">${adding ? "Ajouter une réponse"
+        : editingOther || asGuest ? "Modifier la réponse" : "Ma réponse"}</h2>
       ${adding ? `<p class="match-meta">Pour un parent qui a répondu autrement, ou une seconde voiture de votre famille.</p>` : ""}
       <label>Nom de l'accompagnateur</label>
       <input id="r-name" value="${esc(formName)}" placeholder="Prénom ou nom de famille"${nameLocked ? " disabled" : ""}>
@@ -1227,7 +1235,7 @@ function renderDetail(matchId, editIndex) {
         .map((r, i) => `<option value="${i}" ${rdvIndexOf(myResponse, rdvs.length) === i ? "selected" : ""}>${esc(rdvLabel(r))}</option>`)
         .join("")}</select>` : ""}
       <div class="section-actions">
-        ${mineIdx >= 0 || editIndex != null ? `<button class="btn-secondary" id="r-cancel">Annuler</button>` : ""}
+        <button class="btn-secondary" id="r-cancel">Annuler</button>
         <button class="btn-primary" id="r-save">Enregistrer</button>
       </div>
       ${editing ? `<div class="section-actions">
@@ -1235,7 +1243,9 @@ function renderDetail(matchId, editIndex) {
       </div>` : ""}
     </div>` : ""}
     ${showForm ? "" : `<div class="section-actions">
-      <button class="btn-secondary" id="r-add">➕ Ajouter une voiture</button>
+      ${mineIdx < 0
+        ? `<button class="btn-primary" id="r-mine">➕ Ajouter ma réponse</button>`
+        : `<button class="btn-secondary" id="r-add">➕ Ajouter une voiture</button>`}
     </div>`}
     ${!isAdmin && Store.mode === "db" ? `<div class="section-actions">
       <button class="btn-link" id="p-add">➕ Ajouter un point de rdv</button>
@@ -1293,6 +1303,9 @@ function renderDetail(matchId, editIndex) {
   });
   const addBtn = document.getElementById("r-add");
   if (addBtn) addBtn.onclick = () => renderDetail(matchId, "new");
+
+  const mineBtn = document.getElementById("r-mine");
+  if (mineBtn) mineBtn.onclick = () => renderDetail(matchId, "mine");
 
   // « 13h15 », « 13:15 » ou « 1315 » : on accepte, la base veut HH:MM.
   const asTime = (v) => {
