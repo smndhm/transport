@@ -1090,7 +1090,7 @@ function saveCarPref(pref) {
   try { localStorage.setItem(STORAGE_KEY + ":car", JSON.stringify(pref)); } catch (e) {}
 }
 
-function renderDetail(matchId, editIndex) {
+function renderDetail(matchId, editIndex, addPoint) {
   const m = state.matches.find((x) => x.id === matchId);
   if (!m) return renderList();
   currentMatchId = matchId;
@@ -1242,14 +1242,27 @@ function renderDetail(matchId, editIndex) {
         <button class="btn-danger" id="r-delete">Supprimer cette réponse</button>
       </div>` : ""}
     </div>` : ""}
-    ${showForm ? "" : `<div class="section-actions">
+    ${showForm || addPoint ? "" : `<div class="section-actions">
       ${mineIdx < 0
         ? `<button class="btn-primary" id="r-mine">➕ Ajouter ma réponse</button>`
         : `<button class="btn-secondary" id="r-add">➕ Ajouter une voiture</button>`}
     </div>`}
-    ${!isAdmin && Store.mode === "db" ? `<div class="section-actions">
+    ${!isAdmin && Store.mode === "db" && !showForm ? (addPoint ? `<div class="card">
+      <h2 style="margin-top:0">Nouveau point de rdv</h2>
+      <p class="match-meta">D'où part une voiture, et combien de joueurs y attendent.</p>
+      <label>Lieu</label>
+      <input id="p-place" placeholder="Ex : parking du gymnase">
+      <div class="row">
+        <div><label>Départ</label><input id="p-time" type="time"></div>
+        <div><label>Joueurs à prendre</label><input id="p-totake" type="number" min="0" max="30" placeholder="Ex : 4"></div>
+      </div>
+      <div class="section-actions">
+        <button class="btn-secondary" id="p-cancel">Annuler</button>
+        <button class="btn-primary" id="p-save">Enregistrer</button>
+      </div>
+    </div>` : `<div class="section-actions">
       <button class="btn-link" id="p-add">➕ Ajouter un point de rdv</button>
-    </div>` : ""}
+    </div>`) : ""}
 
     ${rdvs.length
       ? accomp.length ? `<p class="match-meta">Touchez une réponse pour la corriger.</p>` : ""
@@ -1307,24 +1320,21 @@ function renderDetail(matchId, editIndex) {
   const mineBtn = document.getElementById("r-mine");
   if (mineBtn) mineBtn.onclick = () => renderDetail(matchId, "mine");
 
-  // « 13h15 », « 13:15 » ou « 1315 » : on accepte, la base veut HH:MM.
-  const asTime = (v) => {
-    const d = (v || "").replace(/\D/g, "");
-    if (d.length < 3) return "";
-    const h = d.slice(0, d.length - 2), min = d.slice(-2);
-    if (Number(h) > 23 || Number(min) > 59) return "";
-    return String(h).padStart(2, "0") + ":" + min;
-  };
-
   // Un point de rdv oublié n'a pas à attendre le coach.
   const pAdd = document.getElementById("p-add");
-  if (pAdd) pAdd.onclick = () => {
-    const place = prompt("Lieu du point de rdv (ex : Parking du gymnase) :");
-    if (!place || !place.trim()) return;
-    const time = prompt("Heure de départ (ex : 13:15) — laissez vide si vous ne savez pas :") || "";
-    const toTake = prompt("Combien de joueurs à prendre à ce point ? (0 si vous ne savez pas)") || "0";
+  if (pAdd) pAdd.onclick = () => renderDetail(matchId, null, true);
+
+  const pCancel = document.getElementById("p-cancel");
+  if (pCancel) pCancel.onclick = () => rerender();
+
+  const pSave = document.getElementById("p-save");
+  if (pSave) pSave.onclick = () => {
+    const place = document.getElementById("p-place").value.trim();
+    if (!place) return toast("Indiquez le lieu du point de rdv");
+    const time = document.getElementById("p-time").value;
+    const toTake = document.getElementById("p-totake").value;
     withBusy(async () => {
-      await DB.addMeetingPoint(m.dbId, { place: place.trim(), time: asTime(time), toTake });
+      await DB.addMeetingPoint(m.dbId, { place, time, toTake });
       await Store.refreshAfterWrite();
       toast("Point de rdv ajouté ✔");
       rerender();

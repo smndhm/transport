@@ -16,7 +16,7 @@ Le paramètre `?admin` n'est pas une sécurité, juste une adresse non communiqu
 |---|---|---|
 | créer, modifier, supprimer un match | ✔ | ✘ |
 | créer, renommer, supprimer une catégorie | ✔ | ✘ |
-| poser et corriger un point de rdv | ✔ | ✔ |
+| poser un point de rdv oublié | ✔ | ✔ |
 | ajouter, corriger, supprimer **n'importe quelle** voiture | ✔ | ✔ |
 
 Entre parents d'une même équipe, rien n'est verrouillé : c'est un covoiturage entre familles, pas un registre. Le vrai filtre est le lien d'invitation.
